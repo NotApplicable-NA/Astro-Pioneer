@@ -4,208 +4,199 @@ using System.Collections.Generic;
 namespace AstroPioneer.Managers
 {
     /// <summary>
-    /// Manager untuk sistem Grid 2D.
-    /// Grid scalable, tapi area playable dibatasi 10x10 (Starter Hull) sesuai GDD v2.1
+    /// GridManager - Singleton untuk manage 2D grid system.
+    /// Handles grid-based placement, position conversion, dan cell occupation.
     /// </summary>
     public class GridManager : MonoBehaviour
     {
-        [Header("Grid Settings")]
-        [Tooltip("Ukuran grid cell dalam Unity units (1 = 32 pixels dengan PPU 32)")]
-        [SerializeField] private float cellSize = 1f;
-        
-        [Tooltip("Origin point grid (bottom-left corner)")]
-        [SerializeField] private Vector2 gridOrigin = Vector2.zero;
-        
-        [Header("Playable Area (Starter Hull)")]
-        [Tooltip("Area aktif yang bisa digunakan player (10x10 sesuai GDD)")]
-        [SerializeField] private int playableWidth = 10;
-        [SerializeField] private int playableHeight = 10;
-        
-        [Header("Debug")]
-        [Tooltip("Tampilkan gizmo grid di Scene view")]
-        [SerializeField] private bool showGridGizmo = true;
-        
-        [Tooltip("Warna untuk area playable")]
-        [SerializeField] private Color playableAreaColor = new Color(0f, 1f, 0f, 0.2f);
-        
-        [Tooltip("Warna untuk area terkunci")]
-        [SerializeField] private Color lockedAreaColor = new Color(1f, 0f, 0f, 0.2f);
-        
-        // Grid data structure: Dictionary untuk fleksibilitas (bisa expand nanti)
-        private Dictionary<Vector2Int, GridCell> gridCells;
-        
-        // Singleton instance
         public static GridManager Instance { get; private set; }
         
-        private void Awake()
+        [Header("Grid Configuration")]
+        [Tooltip("Grid dimensions in cells (10x10 = Starter Hull)")]
+        [SerializeField] private Vector2Int gridDimensions = new Vector2Int(10, 10);
+        
+        [Tooltip("Cell size in Unity units (1 unit = 32 pixels, PPU 32)")]
+        [SerializeField] private float cellSize = 1.0f;
+        
+        [Tooltip("World position of grid origin (bottom-left corner)")]
+        [SerializeField] private Vector3 gridOrigin = Vector3.zero;
+        
+        [Header("Debug")]
+        [SerializeField] private bool showDebugGizmos = true;
+        [SerializeField] private Color gizmoColor = new Color(0f, 1f, 0f, 0.3f);
+        [SerializeField] private Color occupiedColor = new Color(1f, 0f, 0f, 0.3f);
+        
+        // Cell occupation tracking
+        private Dictionary<Vector2Int, GameObject> occupiedCells = new Dictionary<Vector2Int, GameObject>();
+        
+        void Awake()
         {
             // Singleton pattern
             if (Instance != null && Instance != this)
             {
-                Debug.LogError("[GridManager] Multiple instances detected! Destroying duplicate.", this);
-                Destroy(gameObject);
+                Destroy(this);
                 return;
             }
-            
             Instance = this;
-            InitializeGrid();
         }
         
         /// <summary>
-        /// Inisialisasi grid system
+        /// Convert grid position to world position
         /// </summary>
-        private void InitializeGrid()
+        public Vector3 GridToWorldPosition(Vector2Int gridPos)
         {
-            gridCells = new Dictionary<Vector2Int, GridCell>();
-            
-            // Pre-allocate playable area
-            for (int x = 0; x < playableWidth; x++)
-            {
-                for (int y = 0; y < playableHeight; y++)
-                {
-                    Vector2Int gridPos = new Vector2Int(x, y);
-                    gridCells[gridPos] = new GridCell
-                    {
-                        gridPosition = gridPos,
-                        isPlayable = true,
-                        isOccupied = false
-                    };
-                }
-            }
-            
-            Debug.Log($"[GridManager] Grid initialized. Playable area: {playableWidth}x{playableHeight}");
+            float worldX = gridOrigin.x + (gridPos.x * cellSize) + (cellSize * 0.5f);
+            float worldY = gridOrigin.y + (gridPos.y * cellSize) + (cellSize * 0.5f);
+            return new Vector3(worldX, worldY, gridOrigin.z);
         }
         
         /// <summary>
-        /// Convert world position ke grid position
+        /// Convert world position to grid position
         /// </summary>
-        public Vector2Int GetGridPosition(Vector3 worldPos)
+        public Vector2Int WorldToGridPosition(Vector3 worldPos)
         {
-            Vector2 localPos = worldPos - (Vector3)gridOrigin;
-            int x = Mathf.FloorToInt(localPos.x / cellSize);
-            int y = Mathf.FloorToInt(localPos.y / cellSize);
+            float gridX = (worldPos.x - gridOrigin.x) / cellSize;
+            float gridY = (worldPos.y - gridOrigin.y) / cellSize;
+            
+            // Round to nearest integer
+            int x = Mathf.FloorToInt(gridX);
+            int y = Mathf.FloorToInt(gridY);
             
             return new Vector2Int(x, y);
         }
         
         /// <summary>
-        /// Convert grid position ke world position (center of cell)
+        /// Check if grid position is valid (within playable area)
         /// </summary>
-        public Vector3 GetWorldPosition(Vector2Int gridPos)
+        public bool IsValidGridPosition(Vector2Int gridPos)
         {
-            float worldX = gridOrigin.x + (gridPos.x * cellSize) + (cellSize * 0.5f);
-            float worldY = gridOrigin.y + (gridPos.y * cellSize) + (cellSize * 0.5f);
-            
-            return new Vector3(worldX, worldY, 0f);
+            return gridPos.x >= 0 && gridPos.x < gridDimensions.x &&
+                   gridPos.y >= 0 && gridPos.y < gridDimensions.y;
         }
         
         /// <summary>
-        /// Cek apakah grid position berada di area playable
-        /// </summary>
-        public bool IsPositionPlayable(Vector2Int gridPos)
-        {
-            return gridPos.x >= 0 && gridPos.x < playableWidth &&
-                   gridPos.y >= 0 && gridPos.y < playableHeight;
-        }
-        
-        /// <summary>
-        /// Cek apakah grid position tersedia (playable dan tidak occupied)
+        /// Check if position is available (not occupied)
         /// </summary>
         public bool IsPositionAvailable(Vector2Int gridPos)
         {
-            if (!IsPositionPlayable(gridPos))
+            if (!IsValidGridPosition(gridPos))
                 return false;
             
-            if (gridCells.TryGetValue(gridPos, out GridCell cell))
-            {
-                return !cell.isOccupied;
-            }
-            
-            return false;
+            return !occupiedCells.ContainsKey(gridPos);
         }
         
         /// <summary>
-        /// Set cell sebagai occupied/unoccupied
+        /// Try to occupy a cell. Returns true if successful.
         /// </summary>
-        public void SetCellOccupied(Vector2Int gridPos, bool occupied)
+        public bool TryOccupyCell(Vector2Int gridPos, GameObject occupant)
         {
-            if (gridCells.TryGetValue(gridPos, out GridCell cell))
+            if (!IsValidGridPosition(gridPos))
             {
-                cell.isOccupied = occupied;
+                Debug.LogWarning($"[GridManager] Invalid grid position: {gridPos}", this);
+                return false;
             }
-            else if (IsPositionPlayable(gridPos))
+            
+            if (occupiedCells.ContainsKey(gridPos))
             {
-                // Create new cell jika belum ada
-                gridCells[gridPos] = new GridCell
+                Debug.LogWarning($"[GridManager] Position {gridPos} already occupied by {occupiedCells[gridPos].name}", this);
+                return false;
+            }
+            
+            occupiedCells[gridPos] = occupant;
+            return true;
+        }
+        
+        /// <summary>
+        /// Release a cell (remove occupation)
+        /// </summary>
+        public void ReleaseCell(Vector2Int gridPos)
+        {
+            if (occupiedCells.ContainsKey(gridPos))
+            {
+                occupiedCells.Remove(gridPos);
+            }
+        }
+        
+        /// <summary>
+        /// Get occupant at grid position
+        /// </summary>
+        public GameObject GetOccupantAt(Vector2Int gridPos)
+        {
+            occupiedCells.TryGetValue(gridPos, out GameObject occupant);
+            return occupant;
+        }
+        
+        /// <summary>
+        /// Get all neighbors of a grid position (4-directional)
+        /// </summary>
+        public List<Vector2Int> GetNeighbors(Vector2Int gridPos)
+        {
+            List<Vector2Int> neighbors = new List<Vector2Int>();
+            
+            Vector2Int[] directions = new Vector2Int[]
+            {
+                Vector2Int.up,
+                Vector2Int.down,
+                Vector2Int.left,
+                Vector2Int.right
+            };
+            
+            foreach (Vector2Int dir in directions)
+            {
+                Vector2Int neighbor = gridPos + dir;
+                if (IsValidGridPosition(neighbor))
                 {
-                    gridPosition = gridPos,
-                    isPlayable = true,
-                    isOccupied = occupied
-                };
+                    neighbors.Add(neighbor);
+                }
             }
-            else
-            {
-                Debug.LogWarning($"[GridManager] Attempted to set cell outside playable area: {gridPos}");
-            }
+            
+            return neighbors;
         }
         
         /// <summary>
-        /// Get cell data
+        /// Clear all occupied cells (for testing/reset)
         /// </summary>
-        public GridCell GetCell(Vector2Int gridPos)
+        public void ClearAllCells()
         {
-            if (gridCells.TryGetValue(gridPos, out GridCell cell))
-            {
-                return cell;
-            }
-            
-            return null;
+            occupiedCells.Clear();
         }
         
         // Debug visualization
-        private void OnDrawGizmos()
+        void OnDrawGizmos()
         {
-            if (!showGridGizmo) return;
+            if (!showDebugGizmos) return;
             
-            // Draw playable area
-            Gizmos.color = playableAreaColor;
-            Vector3 playableSize = new Vector3(playableWidth * cellSize, playableHeight * cellSize, 0.1f);
-            Vector3 playableCenter = (Vector3)gridOrigin + new Vector3(
-                playableWidth * cellSize * 0.5f,
-                playableHeight * cellSize * 0.5f,
-                0f
-            );
-            Gizmos.DrawCube(playableCenter, playableSize);
-            
-            // Draw grid lines untuk playable area
-            Gizmos.color = Color.green;
-            for (int x = 0; x <= playableWidth; x++)
+            // Draw grid cells
+            for (int x = 0; x < gridDimensions.x; x++)
             {
-                Vector3 start = (Vector3)gridOrigin + new Vector3(x * cellSize, 0f, 0f);
-                Vector3 end = (Vector3)gridOrigin + new Vector3(x * cellSize, playableHeight * cellSize, 0f);
-                Gizmos.DrawLine(start, end);
-            }
-            
-            for (int y = 0; y <= playableHeight; y++)
-            {
-                Vector3 start = (Vector3)gridOrigin + new Vector3(0f, y * cellSize, 0f);
-                Vector3 end = (Vector3)gridOrigin + new Vector3(playableWidth * cellSize, y * cellSize, 0f);
-                Gizmos.DrawLine(start, end);
+                for (int y = 0; y < gridDimensions.y; y++)
+                {
+                    Vector2Int gridPos = new Vector2Int(x, y);
+                    Vector3 worldPos = GridToWorldPosition(gridPos);
+                    
+                    // Check if occupied
+                    bool isOccupied = occupiedCells.ContainsKey(gridPos);
+                    Gizmos.color = isOccupied ? occupiedColor : gizmoColor;
+                    
+                    // Draw cell
+                    Gizmos.DrawCube(worldPos, new Vector3(cellSize * 0.9f, cellSize * 0.9f, 0.1f));
+                }
             }
         }
-    }
-    
-    /// <summary>
-    /// Data structure untuk setiap cell di grid
-    /// </summary>
-    [System.Serializable]
-    public class GridCell
-    {
-        public Vector2Int gridPosition;
-        public bool isPlayable;
-        public bool isOccupied;
-        // Bisa ditambah data lain nanti (crop reference, tile type, dll)
+        
+        void OnDrawGizmosSelected()
+        {
+            // Draw grid boundaries
+            Gizmos.color = Color.yellow;
+            Vector3 bottomLeft = gridOrigin;
+            Vector3 bottomRight = gridOrigin + new Vector3(gridDimensions.x * cellSize, 0, 0);
+            Vector3 topLeft = gridOrigin + new Vector3(0, gridDimensions.y * cellSize, 0);
+            Vector3 topRight = gridOrigin + new Vector3(gridDimensions.x * cellSize, gridDimensions.y * cellSize, 0);
+            
+            Gizmos.DrawLine(bottomLeft, bottomRight);
+            Gizmos.DrawLine(bottomRight, topRight);
+            Gizmos.DrawLine(topRight, topLeft);
+            Gizmos.DrawLine(topLeft, bottomLeft);
+        }
     }
 }
-
-

@@ -3,66 +3,55 @@ using UnityEngine;
 namespace AstroPioneer.Data
 {
     /// <summary>
-    /// ScriptableObject untuk menyimpan data tanaman (Crop).
-    /// Mengacu pada Appendix B: Data Balancing dari GDD v2.1
+    /// CropData - ScriptableObject untuk define crop types.
+    /// Contains growth stages, timing, yield, dan visual data.
     /// </summary>
-    [CreateAssetMenu(fileName = "NewCropData", menuName = "Astro-Pioneer/Crop Data", order = 1)]
+    [CreateAssetMenu(fileName = "New Crop", menuName = "AstroPioneer/Crop Data")]
     public class CropData : ScriptableObject
     {
-        [Header("Crop Identification")]
-        [Tooltip("ID unik untuk crop (contoh: CRP_001, CRP_002)")]
+        [Header("Crop Identity")]
+        [Tooltip("Unique crop ID (e.g., 'space_potato', 'neon_carrot')")]
         public string cropID;
         
-        [Tooltip("Nama display untuk crop")]
-        public string cropName;
+        [Tooltip("Display name untuk UI")]
+        public string displayName;
         
-        [Header("Growth Settings")]
-        [Tooltip("Waktu pertumbuhan dalam detik")]
-        public float growthTimeSeconds;
+        [Header("Growth Configuration")]
+        [Tooltip("Growth time per stage in seconds (4 stages: Seed, Sprout, Mature, Harvestable)")]
+        public float[] growthTimePerStage = new float[4] { 30f, 30f, 30f, 30f }; // Default: 2 minutes total
         
-        [Header("Economy")]
-        [Tooltip("Harga beli bibit (dalam Credits)")]
-        public int seedCost;
+        [Tooltip("Water required per growth cycle")]
+        public bool requiresWater = true;
         
-        [Tooltip("Harga jual hasil panen (dalam Credits)")]
-        public int sellPrice;
+        [Header("Harvest Configuration")]
+        [Tooltip("Item ID yang dihasilkan saat harvest")]
+        public string harvestItemID;
+        
+        [Tooltip("Quantity per harvest")]
+        public int harvestQuantity = 1;
         
         [Header("Visual")]
-        [Tooltip("Sprite untuk seed stage")]
-        public Sprite seedSprite;
+        [Tooltip("Sprite per growth stage (4 sprites: Stage 0-3)")]
+        public Sprite[] stageSprites = new Sprite[4];
         
-        [Tooltip("Sprite untuk sprout stage")]
-        public Sprite sproutSprite;
+        [Tooltip("Sorting layer untuk crop sprite")]
+        public string sortingLayer = "Crops";
         
-        [Tooltip("Sprite untuk harvest stage")]
-        public Sprite harvestSprite;
+        [Tooltip("Order in layer")]
+        public int orderInLayer = 0;
         
-        /// <summary>
-        /// Validasi data crop saat di-assign di Inspector
-        /// </summary>
-        private void OnValidate()
+        // Validation
+        void OnValidate()
         {
-            if (string.IsNullOrEmpty(cropID))
+            if (growthTimePerStage.Length != 4)
             {
-                Debug.LogWarning($"[CropData] {cropName}: CropID tidak boleh kosong!", this);
+                Debug.LogWarning($"[CropData] {name}: Growth time array should have 4 stages!", this);
             }
             
-            if (growthTimeSeconds <= 0)
+            if (stageSprites.Length != 4)
             {
-                Debug.LogError($"[CropData] {cropName}: Growth Time harus lebih dari 0!", this);
-            }
-            
-            if (seedCost < 0)
-            {
-                Debug.LogWarning($"[CropData] {cropName}: Seed Cost tidak boleh negatif!", this);
-            }
-            
-            if (sellPrice < 0)
-            {
-                Debug.LogWarning($"[CropData] {cropName}: Sell Price tidak boleh negatif!", this);
+                Debug.LogWarning($"[CropData] {name}: Stage sprites array should have 4 sprites!", this);
             }
         }
     }
 }
-
-

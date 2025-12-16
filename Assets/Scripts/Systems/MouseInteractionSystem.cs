@@ -4,175 +4,109 @@ using AstroPioneer.Managers;
 namespace AstroPioneer.Systems
 {
     /// <summary>
-    /// Sistem untuk handle Mouse-to-Grid interaction menggunakan Raycast.
-    /// Mengacu pada requirement: "Implementasi deteksi Mouse-to-Grid (Raycast)"
+    /// MouseInteractionSystem - Handles mouse input untuk grid-based interaction.
+    /// Converts mouse clicks to grid positions dan trigger events.
     /// </summary>
     public class MouseInteractionSystem : MonoBehaviour
     {
-        [Header("Camera Reference")]
-        [Tooltip("Camera untuk raycast (default: Main Camera)")]
-        [SerializeField] private Camera mainCamera;
+        public static MouseInteractionSystem Instance { get; private set; }
         
-        [Header("Layer Settings")]
-        [Tooltip("Layer mask untuk grid interaction")]
-        [SerializeField] private LayerMask gridLayerMask = -1;
+        [Header("Input Settings")]
+        [SerializeField] private Camera mainCamera;
+        [SerializeField] private LayerMask uiLayerMask;
         
         [Header("Debug")]
-        [Tooltip("Tampilkan debug ray di Scene view")]
-        [SerializeField] private bool showDebugRay = true;
+        [SerializeField] private bool showDebugGizmos = true;
+        [SerializeField] private Vector2Int hoveredGridPos;
         
-        [Tooltip("Warna debug ray")]
-        [SerializeField] private Color debugRayColor = Color.yellow;
+        // Events
+        public delegate void GridCellEvent(Vector2Int gridPos);
+        public static event GridCellEvent OnGridCellClicked;
+        public static event GridCellEvent OnGridCellHovered;
         
-        // Events untuk interaction
-        public System.Action<Vector2Int> OnGridCellClicked;
-        public System.Action<Vector2Int> OnGridCellHovered;
-        
-        private Vector2Int lastHoveredGridPos = new Vector2Int(-1, -1);
-        
-        private void Awake()
+        void Awake()
         {
-            // Auto-assign Main Camera jika belum di-assign
-            if (mainCamera == null)
+            // Singleton pattern
+            if (Instance != null && Instance != this)
             {
-                mainCamera = Camera.main;
-                
-                if (mainCamera == null)
-                {
-                    Debug.LogError("[MouseInteractionSystem] Main Camera tidak ditemukan! Pastikan ada Camera dengan tag 'MainCamera'.", this);
-                }
+                Destroy(this);
+                return;
             }
+            Instance = this;
             
-            // Validasi GridManager
-            if (GridManager.Instance == null)
-            {
-                Debug.LogError("[MouseInteractionSystem] GridManager.Instance tidak ditemukan! Pastikan GridManager ada di scene.", this);
-            }
+            // Auto-assign main camera if not set
+            if (mainCamera == null)
+                mainCamera = Camera.main;
         }
         
-        private void Update()
+        void Update()
         {
             HandleMouseInput();
         }
         
-        /// <summary>
-        /// Handle mouse input dan raycast ke grid
-        /// </summary>
-        private void HandleMouseInput()
+        void HandleMouseInput()
         {
-            if (mainCamera == null || GridManager.Instance == null)
-                return;
+            if (GridManager.Instance == null) return;
             
-            // Convert mouse position ke world position menggunakan raycast
-            Vector3 mouseWorldPos = GetMouseWorldPosition();
+            // Get mouse world position
+            Vector3 mouseWorldPos = mainCamera.ScreenToWorldPoint(Input.mousePosition);
+            mouseWorldPos.z = 0f;
             
-            if (mouseWorldPos == Vector3.zero)
-                return;
+            // Convert to grid position
+            Vector2Int gridPos = GridManager.Instance.WorldToGridPosition(mouseWorldPos);
             
-            // Convert ke grid position
-            Vector2Int gridPos = GridManager.Instance.GetGridPosition(mouseWorldPos);
+            // Check if valid position
+            bool isValid = GridManager.Instance.IsValidGridPosition(gridPos);
             
-            // Hover detection (untuk highlight nanti)
-            if (gridPos != lastHoveredGridPos)
+            if (isValid)
             {
-                lastHoveredGridPos = gridPos;
-                OnGridCellHovered?.Invoke(gridPos);
-            }
-            
-            // Click detection
-            if (Input.GetMouseButtonDown(0)) // Left click
-            {
-                HandleGridClick(gridPos, mouseWorldPos);
-            }
-        }
-        
-        /// <summary>
-        /// Raycast dari mouse position ke world position
-        /// </summary>
-        private Vector3 GetMouseWorldPosition()
-        {
-            // Untuk 2D orthographic camera, langsung convert screen to world
-            if (mainCamera.orthographic)
-            {
-                Vector3 mouseScreenPos = Input.mousePosition;
-                mouseScreenPos.z = mainCamera.nearClipPlane;
-                Vector3 worldPos = mainCamera.ScreenToWorldPoint(mouseScreenPos);
-                worldPos.z = 0f; // Lock Z untuk 2D
-                
-                // Debug ray visualization
-                if (showDebugRay)
+                // Hover event
+                if (gridPos != hoveredGridPos)
                 {
-                    Debug.DrawRay(mainCamera.transform.position, worldPos - mainCamera.transform.position, debugRayColor);
+                    hoveredGridPos = gridPos;
+                    OnGridCellHovered?.Invoke(gridPos);
+                    Debug.Log($"[MouseInteractionSystem] Hover: {gridPos}"); // Debug for gizmo verification
                 }
                 
-                return worldPos;
-            }
-            else
-            {
-                // Untuk perspective camera, gunakan raycast
-                Ray ray = mainCamera.ScreenPointToRay(Input.mousePosition);
-                RaycastHit hit;
-                
-                if (Physics.Raycast(ray, out hit, Mathf.Infinity, gridLayerMask))
+                // Click event
+                if (Input.GetMouseButtonDown(0))
                 {
-                    if (showDebugRay)
+                    if (!IsPointerOverUI())
                     {
-                        Debug.DrawRay(ray.origin, ray.direction * hit.distance, debugRayColor);
+                        OnGridCellClicked?.Invoke(gridPos);
+                        Debug.Log($"[MouseInteractionSystem] Grid cell clicked: {gridPos}");
                     }
-                    
-                    return hit.point;
-                }
-                
-                // Fallback: hitung intersection dengan Z=0 plane
-                Plane groundPlane = new Plane(Vector3.forward, Vector3.zero);
-                float distance;
-                if (groundPlane.Raycast(ray, out distance))
-                {
-                    Vector3 hitPoint = ray.GetPoint(distance);
-                    if (showDebugRay)
-                    {
-                        Debug.DrawRay(ray.origin, ray.direction * distance, debugRayColor);
-                    }
-                    return hitPoint;
                 }
             }
-            
-            return Vector3.zero;
         }
         
         /// <summary>
-        /// Handle click pada grid cell
+        /// Check if mouse is over UI elements
         /// </summary>
-        private void HandleGridClick(Vector2Int gridPos, Vector3 worldPos)
+        bool IsPointerOverUI()
         {
-            // Validasi apakah position playable
-            if (!GridManager.Instance.IsPositionPlayable(gridPos))
+            // Simple raycast check for UI
+            return UnityEngine.EventSystems.EventSystem.current != null &&
+                   UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject();
+        }
+        
+        // Debug visualization
+        void OnDrawGizmos()
+        {
+            if (!showDebugGizmos || GridManager.Instance == null) return;
+            
+            // Draw hovered cell
+            if (GridManager.Instance.IsValidGridPosition(hoveredGridPos))
             {
-                Debug.Log($"[MouseInteractionSystem] Clicked on locked area: {gridPos}");
-                return;
+                Vector3 worldPos = GridManager.Instance.GridToWorldPosition(hoveredGridPos);
+                Gizmos.color = new Color(1f, 1f, 0f, 0.5f); // Yellow
+                Gizmos.DrawCube(worldPos, new Vector3(0.9f, 0.9f, 0.1f));
             }
-            
-            // Validasi apakah position available
-            if (!GridManager.Instance.IsPositionAvailable(gridPos))
-            {
-                Debug.Log($"[MouseInteractionSystem] Clicked on occupied cell: {gridPos}");
-                return;
-            }
-            
-            // Trigger event
-            OnGridCellClicked?.Invoke(gridPos);
-            
-            Debug.Log($"[MouseInteractionSystem] Grid cell clicked: {gridPos} (World: {worldPos})");
         }
         
         /// <summary>
-        /// Get current hovered grid position (untuk UI feedback)
+        /// Get currently hovered grid position
         /// </summary>
-        public Vector2Int GetHoveredGridPosition()
-        {
-            return lastHoveredGridPos;
-        }
+        public Vector2Int GetHoveredGridPosition() => hoveredGridPos;
     }
 }
-
-
