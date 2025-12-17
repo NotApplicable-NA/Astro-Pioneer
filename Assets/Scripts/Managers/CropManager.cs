@@ -35,38 +35,32 @@ namespace AstroPioneer.Managers
         /// </summary>
         public bool PlantCrop(Vector2Int gridPos, CropData cropData)
         {
-            // Validate dengan GridManager
+            // Validate GridManager exists
             if (GridManager.Instance == null)
             {
                 Debug.LogError("[CropManager] GridManager not found!", this);
                 return false;
             }
             
-            // Check if position is available
+            // Issue 6 Fix: Validate FIRST, then create and setup crop
+            
+            // Step 1: Check if position is available (without occupying yet)
             if (!GridManager.Instance.IsPositionAvailable(gridPos))
             {
-                Debug.LogWarning($"[CropManager] Position {gridPos} not available!", this);
+                Debug.LogWarning($"[CropManager] Cannot plant - cell {gridPos} already occupied or invalid");
                 return false;
             }
             
-            // Check if already has crop
-            if (activeCrops.ContainsKey(gridPos))
-            {
-                Debug.LogWarning($"[CropManager] Position {gridPos} already has crop!", this);
-                return false;
-            }
-            
-            // Create crop instance from prefab
+            // Step 2: Create crop GameObject AFTER validation
             GameObject cropObj;
             if (cropPrefab != null)
             {
-                // Use prefab (recommended - includes VFX children)
                 cropObj = Instantiate(cropPrefab);
                 cropObj.name = $"Crop_{cropData.cropID}_{gridPos}";
             }
             else
             {
-                // Fallback: Create manually (old method)
+                // Fallback if prefab not assigned
                 cropObj = new GameObject($"Crop_{cropData.cropID}_{gridPos}");
                 cropObj.AddComponent<CropInstance>();
             }
@@ -74,22 +68,31 @@ namespace AstroPioneer.Managers
             CropInstance crop = cropObj.GetComponent<CropInstance>();
             if (crop == null)
             {
-                crop = cropObj.AddComponent<CropInstance>();
+                Debug.LogError("[CropManager] CropInstance component not found on prefab!");
+                Destroy(cropObj); // Cleanup
+                return false;
             }
             
-            crop.SetGridPosition(gridPos);
+            // Step 3: Setup crop data BEFORE activating (before position set)
             crop.SetCropData(cropData);
+            crop.SetGridPosition(gridPos);
             
-            // Position di world space
+            // Step 4: Calculate and set world position
             Vector3 worldPos = GridManager.Instance.GridToWorldPosition(gridPos);
             cropObj.transform.position = worldPos;
             
-            // Occupy grid cell
-            GridManager.Instance.TryOccupyCell(gridPos, cropObj);
+            // Step 5: Occupy cell AFTER crop is fully setup
+            if (!GridManager.Instance.TryOccupyCell(gridPos, cropObj))
+            {
+                Debug.LogError($"[CropManager] Failed to occupy cell {gridPos} - destroying crop");
+                Destroy(cropObj);
+                return false;
+            }
             
-            // Register
+            // Step 6: Register crop in tracking dictionary
             activeCrops[gridPos] = crop;
             
+            Debug.Log($"[CropManager] Planted {cropData.displayName} at {gridPos}");
             return true;
         }
         

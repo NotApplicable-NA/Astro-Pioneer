@@ -40,21 +40,24 @@ namespace AstroPioneer.Player
             }
             Instance = this;
             
-            // Instantiate VFX from prefabs
-            if (wateringVFXPrefab != null)
+            // Issue 2 Fix: Reuse VFX instances to prevent DontDestroyOnLoad leaks
+            // Check if instances already exist before creating new ones
+            wateringVFX = FindObjectOfType<WateringVFX>();
+            if (wateringVFX == null && wateringVFXPrefab != null)
             {
                 GameObject vfxObj = Instantiate(wateringVFXPrefab.gameObject);
                 vfxObj.name = "WateringVFX_Instance";
                 wateringVFX = vfxObj.GetComponent<WateringVFX>();
-                DontDestroyOnLoad(vfxObj); // Keep between scenes
+                DontDestroyOnLoad(vfxObj);
             }
             
-            if (harvestVFXPrefab != null)
+            harvestVFX = FindObjectOfType<HarvestVFX>();
+            if (harvestVFX == null && harvestVFXPrefab != null)
             {
                 GameObject vfxObj = Instantiate(harvestVFXPrefab.gameObject);
                 vfxObj.name = "HarvestVFX_Instance";
                 harvestVFX = vfxObj.GetComponent<HarvestVFX>();
-                DontDestroyOnLoad(vfxObj); // Keep between scenes
+                DontDestroyOnLoad(vfxObj);
             }
         }
         
@@ -140,13 +143,20 @@ namespace AstroPioneer.Player
                 crop.WaterCrop();
                 Debug.Log($"[PlayerToolState] Watered crop at {gridPos}");
                 
-                // Play watering VFX
+                // Issue 3 Fix: GridManager null guard before VFX
                 if (wateringVFX != null && wateringVFX.gameObject != null)
                 {
-                    Vector3 worldPos = GridManager.Instance.GridToWorldPosition(gridPos);
-                    wateringVFX.PlayAtPosition(worldPos);
+                    if (GridManager.Instance != null)
+                    {
+                        Vector3 worldPos = GridManager.Instance.GridToWorldPosition(gridPos);
+                        wateringVFX.PlayAtPosition(worldPos);
+                    }
+                    else
+                    {
+                        Debug.LogError("[PlayerToolState] GridManager.Instance is null, cannot play WateringVFX", this);
+                    }
                 }
-                else
+                else if (wateringVFX == null)
                 {
                     Debug.LogWarning("[PlayerToolState] WateringVFX not assigned - follow vfx_completion_guide.md");
                 }

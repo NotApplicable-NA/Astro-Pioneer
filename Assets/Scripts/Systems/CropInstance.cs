@@ -65,10 +65,16 @@ namespace AstroPioneer.Systems
             if (cropData == null) return;
             if (currentStage >= 3) return; // Fully grown, no more progression
             
-            // QA Fix: Bounds check for array access
+            // Issue 4 Fix: Null and bounds check for array access
+            if (cropData.growthTimePerStage == null)
+            {
+                Debug.LogError($"[CropInstance] growthTimePerStage is null for crop {cropData.displayName}", this);
+                return;
+            }
+            
             if (currentStage >= cropData.growthTimePerStage.Length)
             {
-                Debug.LogError($"[CropInstance] Invalid stage {currentStage} for crop {cropData.displayName}", this);
+                Debug.LogError($"[CropInstance] Invalid stage {currentStage} for crop {cropData.displayName} (array length: {cropData.growthTimePerStage.Length})", this);
                 return;
             }
             
@@ -138,28 +144,44 @@ namespace AstroPioneer.Systems
             // Trigger event
             OnCropHarvested?.Invoke(this);
             
-            // Cleanup - ensure proper removal from registry
+            // Issue 5 Fix: Don't duplicate ReleaseCell - CropManager.RemoveCrop already handles it
+            // Cleanup - remove from registry first, then destroy
             if (CropManager.Instance != null)
             {
                 CropManager.Instance.RemoveCrop(gridPosition);
             }
-            // Note: CropManager.RemoveCrop() already calls GridManager.ReleaseCell()
-            // No need to duplicate here
-            if (GridManager.Instance != null)
-            {
-                GridManager.Instance.ReleaseCell(gridPosition);
-            }
+            
             Destroy(gameObject);
         }
         
         void UpdateVisual()
         {
-            if (cropData != null && currentStage < cropData.growthStageSprites.Length)
+            // Issue 4 Fix: Comprehensive null and bounds checks
+            if (cropData == null)
             {
-                if (cropData.growthStageSprites[currentStage] != null)
-                {
-                    spriteRenderer.sprite = cropData.growthStageSprites[currentStage];
-                }
+                Debug.LogWarning("[CropInstance] cropData is null, cannot update visual", this);
+                return;
+            }
+            
+            if (cropData.growthStageSprites == null)
+            {
+                Debug.LogWarning($"[CropInstance] growthStageSprites is null for crop {cropData.displayName}", this);
+                return;
+            }
+            
+            if (currentStage >= cropData.growthStageSprites.Length)
+            {
+                Debug.LogWarning($"[CropInstance] currentStage {currentStage} out of bounds for growthStageSprites (length: {cropData.growthStageSprites.Length})", this);
+                return;
+            }
+            
+            if (cropData.growthStageSprites[currentStage] != null)
+            {
+                spriteRenderer.sprite = cropData.growthStageSprites[currentStage];
+            }
+            else
+            {
+                Debug.LogWarning($"[CropInstance] Sprite for stage {currentStage} is null for crop {cropData.displayName}", this);
             }
         }
         

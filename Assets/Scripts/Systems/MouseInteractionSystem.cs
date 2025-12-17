@@ -41,31 +41,31 @@ namespace AstroPioneer.Systems
         
         void Update()
         {
-            HandleMouseInput();
-        }
-        
-        void HandleMouseInput()
-        {
-            if (GridManager.Instance == null) return;
+            // Guard: Check if GridManager exists
+            if (GridManager.Instance == null)
+            {
+                // Don't spam - only log once per frame if needed
+                return;
+            }
             
             // Get mouse world position
             Vector3 mouseWorldPos = mainCamera.ScreenToWorldPoint(Input.mousePosition);
             mouseWorldPos.z = 0f;
             
             // Convert to grid position
-            Vector2Int gridPos = GridManager.Instance.WorldToGridPosition(mouseWorldPos);
+            Vector2Int currentGridPos = GridManager.Instance.WorldToGridPosition(mouseWorldPos);
             
             // Check if valid position
-            bool isValid = GridManager.Instance.IsValidGridPosition(gridPos);
+            bool isValid = GridManager.Instance.IsValidGridPosition(currentGridPos);
             
             if (isValid)
             {
                 // Hover event
-                if (gridPos != hoveredGridPos)
+                if (currentGridPos != hoveredGridPos)
                 {
-                    hoveredGridPos = gridPos;
-                    OnGridCellHovered?.Invoke(gridPos);
-                    Debug.Log($"[MouseInteractionSystem] Hover: {gridPos}"); // Debug for gizmo verification
+                    hoveredGridPos = currentGridPos;
+                    OnGridCellHovered?.Invoke(currentGridPos);
+                    Debug.Log($"[MouseInteractionSystem] Hover: {currentGridPos}"); // Debug for gizmo verification
                 }
                 
                 // Click event
@@ -73,8 +73,8 @@ namespace AstroPioneer.Systems
                 {
                     if (!IsPointerOverUI())
                     {
-                        OnGridCellClicked?.Invoke(gridPos);
-                        Debug.Log($"[MouseInteractionSystem] Grid cell clicked: {gridPos}");
+                        OnGridCellClicked?.Invoke(currentGridPos);
+                        Debug.Log($"[MouseInteractionSystem] Grid cell clicked: {currentGridPos}");
                     }
                 }
             }
