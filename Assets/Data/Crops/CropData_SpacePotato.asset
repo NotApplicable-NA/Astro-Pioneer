@@ -22,7 +22,8 @@ MonoBehaviour:
   requiresWater: 1
   harvestItemID: ITM_SpacePotato
   harvestQuantity: 1
-  stageSprites:
+  sellPrice: 18
+  growthStageSprites:
   - {fileID: 691154124, guid: 61342109aec2536479ff934f3a56297a, type: 3}
   - {fileID: -1138698064, guid: 61342109aec2536479ff934f3a56297a, type: 3}
   - {fileID: -1723823247, guid: 61342109aec2536479ff934f3a56297a, type: 3}

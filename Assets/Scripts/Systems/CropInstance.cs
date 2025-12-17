@@ -23,6 +23,7 @@ namespace AstroPioneer.Systems
         private SpriteRenderer spriteRenderer;
         private GrowthTransitionVFX growthVFX;
         private HarvestableGlow harvestableGlow;
+        private bool _isHarvesting = false; // Guard flag for double harvest prevention
         
         // Events
         public delegate void CropEvent(CropInstance crop);
@@ -64,6 +65,16 @@ namespace AstroPioneer.Systems
             if (cropData == null) return;
             if (currentStage >= 3) return; // Fully grown, no more progression
             
+            // QA Fix: Bounds check for array access
+            if (currentStage >= cropData.growthTimePerStage.Length)
+            {
+                Debug.LogError($"[CropInstance] Invalid stage {currentStage} for crop {cropData.displayName}", this);
+                return;
+            }
+            
+            // QA Fix: Watering Logic (Option B - Require water to grow)
+            if (!isWatered) return; // Crops don't grow without water
+            
             // Growth progression
             growthTimer += Time.deltaTime;
             float stageTime = cropData.growthTimePerStage[currentStage];
@@ -71,6 +82,7 @@ namespace AstroPioneer.Systems
             if (growthTimer >= stageTime)
             {
                 AdvanceStage();
+                isWatered = false; // Reset after stage advance (requires re-watering)
             }
         }
         
@@ -112,33 +124,41 @@ namespace AstroPioneer.Systems
         public void Harvest()
         {
             if (!IsHarvestable()) return;
+            if (_isHarvesting) return; // QA Fix: Guard flag to prevent double harvest
+            _isHarvesting = true;
             
-            // Trigger harvest event
-            OnCropHarvested?.Invoke(this);
+            Debug.Log($"[CropInstance] Harvesting {cropData.displayName} at {gridPosition}");
             
-            // TODO: Add to inventory (Sprint 4 - TICKET-016)
+            // TODO: TICKET-016 (Sprint 4) - Add to inventory
             // InventoryManager.Instance?.AddItem(cropData.harvestItemID, cropData.harvestQuantity);
             
-            // Remove from CropManager registry FIRST (critical!)
+            // TODO: TICKET-012 - Harvest VFX
+            // HarvestVFX.PlayAtPosition(transform.position);
+            
+            // Trigger event
+            OnCropHarvested?.Invoke(this);
+            
+            // Cleanup - ensure proper removal from registry
             if (CropManager.Instance != null)
             {
                 CropManager.Instance.RemoveCrop(gridPosition);
             }
-            
             // Note: CropManager.RemoveCrop() already calls GridManager.ReleaseCell()
             // No need to duplicate here
-            
-            // Remove crop
+            if (GridManager.Instance != null)
+            {
+                GridManager.Instance.ReleaseCell(gridPosition);
+            }
             Destroy(gameObject);
         }
         
         void UpdateVisual()
         {
-            if (cropData != null && currentStage < cropData.stageSprites.Length)
+            if (cropData != null && currentStage < cropData.growthStageSprites.Length)
             {
-                if (cropData.stageSprites[currentStage] != null)
+                if (cropData.growthStageSprites[currentStage] != null)
                 {
-                    spriteRenderer.sprite = cropData.stageSprites[currentStage];
+                    spriteRenderer.sprite = cropData.growthStageSprites[currentStage];
                 }
             }
         }

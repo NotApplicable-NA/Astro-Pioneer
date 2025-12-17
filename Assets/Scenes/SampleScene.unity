@@ -155,6 +155,8 @@ MonoBehaviour:
   selectedCropData: {fileID: 0}
   spacePotatoData: {fileID: 11400000, guid: 4a0bb026bea2142448fe0d7940dbea7d, type: 2}
   neonCarrotData: {fileID: 11400000, guid: 8cba7e96159d5554580846cc36509321, type: 2}
+  wateringVFXPrefab: {fileID: 7940059013104437922, guid: f5e0538e796ef46479d27c9b21b9ab74, type: 3}
+  harvestVFXPrefab: {fileID: 3131143699111176400, guid: 9ac65533f13346b438a48f72bcff91bf, type: 3}
 --- !u!4 &132413253
 Transform:
   m_ObjectHideFlags: 0

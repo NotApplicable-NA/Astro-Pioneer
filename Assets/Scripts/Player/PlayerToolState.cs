@@ -2,6 +2,7 @@ using UnityEngine;
 using AstroPioneer.Systems;
 using AstroPioneer.Managers;
 using AstroPioneer.Data;
+using AstroPioneer.VFX;
 
 namespace AstroPioneer.Player
 {
@@ -21,15 +22,40 @@ namespace AstroPioneer.Player
         [SerializeField] private CropData spacePotatoData;
         [SerializeField] private CropData neonCarrotData;
         
+        [Header("VFX References")]
+        [SerializeField] private WateringVFX wateringVFXPrefab;
+        [SerializeField] private HarvestVFX harvestVFXPrefab;
+        
+        // VFX instances
+        private WateringVFX wateringVFX;
+        private HarvestVFX harvestVFX;
+        
         void Awake()
         {
             // Singleton pattern
             if (Instance != null && Instance != this)
             {
-                Destroy(this);
+                Destroy(gameObject); // Destroy entire GameObject, not just component
                 return;
             }
             Instance = this;
+            
+            // Instantiate VFX from prefabs
+            if (wateringVFXPrefab != null)
+            {
+                GameObject vfxObj = Instantiate(wateringVFXPrefab.gameObject);
+                vfxObj.name = "WateringVFX_Instance";
+                wateringVFX = vfxObj.GetComponent<WateringVFX>();
+                DontDestroyOnLoad(vfxObj); // Keep between scenes
+            }
+            
+            if (harvestVFXPrefab != null)
+            {
+                GameObject vfxObj = Instantiate(harvestVFXPrefab.gameObject);
+                vfxObj.name = "HarvestVFX_Instance";
+                harvestVFX = vfxObj.GetComponent<HarvestVFX>();
+                DontDestroyOnLoad(vfxObj); // Keep between scenes
+            }
         }
         
         void OnEnable()
@@ -107,13 +133,28 @@ namespace AstroPioneer.Player
                 Debug.LogError("[PlayerToolState] CropManager not found!", this);
                 return;
             }
-            
-            CropManager.Instance.WaterCropAt(gridPos);
-            
-            // Trigger watering VFX
-            // TODO: Implement VFX system (TICKET-012)
-            
-            Debug.Log($"[PlayerToolState] Watered crop at {gridPos}");
+
+            CropInstance crop = CropManager.Instance.GetCropAt(gridPos);
+            if (crop != null)
+            {
+                crop.WaterCrop();
+                Debug.Log($"[PlayerToolState] Watered crop at {gridPos}");
+                
+                // Play watering VFX
+                if (wateringVFX != null && wateringVFX.gameObject != null)
+                {
+                    Vector3 worldPos = GridManager.Instance.GridToWorldPosition(gridPos);
+                    wateringVFX.PlayAtPosition(worldPos);
+                }
+                else
+                {
+                    Debug.LogWarning("[PlayerToolState] WateringVFX not assigned - follow vfx_completion_guide.md");
+                }
+            }
+            else
+            {
+                Debug.LogWarning($"[PlayerToolState] No crop at {gridPos} to water");
+            }
         }
         
         void HarvestCrop(Vector2Int gridPos, CropInstance crop)
@@ -123,19 +164,20 @@ namespace AstroPioneer.Player
             CropData cropData = crop.GetCropData();
             if (cropData == null) return;
             
-            // Log harvest (placeholder for inventory - Sprint 4)
-            Debug.Log($"[PlayerToolState] Harvested {cropData.displayName}! " +
-                      $"Item: {cropData.harvestItemID} x{cropData.harvestQuantity}");
+            Debug.Log($"[PlayerToolState] Harvesting crop at {gridPos}");
             
-            // TODO: Add to inventory (Sprint 4 - TICKET-016)
-            // InventoryManager.Instance?.AddItem(cropData.harvestItemID, cropData.harvestQuantity);
+            // Play harvest VFX before destroying crop
+            if (harvestVFX != null)
+            {
+                harvestVFX.PlayAtPosition(crop.transform.position);
+            }
             
-            // Trigger harvest VFX (TICKET-012)
-            // TODO: HarvestVFX.Play(gridPos);
+            // TODO: TICKET-016 (Sprint 4) - Add to inventory
+            // InventoryManager.Instance?.AddItem(crop.CropData.harvestItemID, crop.CropData.harvestQuantity);
             
             // TODO: Play harvest SFX (Sprint 9)
             
-            // Remove crop (calls CropInstance.Harvest() internally)
+            // Harvest the crop (this will destroy it)
             crop.Harvest();
         }
         

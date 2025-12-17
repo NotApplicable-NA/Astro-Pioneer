@@ -34,7 +34,7 @@ namespace AstroPioneer.Managers
             // Singleton pattern
             if (Instance != null && Instance != this)
             {
-                Destroy(this);
+                Destroy(gameObject); // Destroy entire GameObject, not just component
                 return;
             }
             Instance = this;

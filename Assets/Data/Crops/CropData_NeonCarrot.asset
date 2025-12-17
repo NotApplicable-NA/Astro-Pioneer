@@ -22,7 +22,8 @@ MonoBehaviour:
   requiresWater: 1
   harvestItemID: ITM_NeonCarrot
   harvestQuantity: 1
-  stageSprites:
+  sellPrice: 60
+  growthStageSprites:
   - {fileID: 77990773, guid: cd2dc970e84948b46bf9f40eed2c0c25, type: 3}
   - {fileID: -42699952, guid: cd2dc970e84948b46bf9f40eed2c0c25, type: 3}
   - {fileID: 418879621, guid: cd2dc970e84948b46bf9f40eed2c0c25, type: 3}
