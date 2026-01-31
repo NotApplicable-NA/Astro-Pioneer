@@ -52,33 +52,36 @@ Siklus permainan dirancang untuk memuaskan hasrat optimasi tanpa tekanan waktu y
 ### 4.1. The Ship: "Industrial Lab"
 * **Style Utama:** High-Fidelity Solarpunk. Optimis, bersih, dan ramah lingkungan.
 * **Visual Pillars:**
-    * **Organic + Tech Fusion:** Technology that mimics or integrates with nature (e.g., leaf-shaped solar panels, vine-wrapped circuits).
+    * **Industrial Precision:** Aerospace engineering aesthetic (clean lines, modular construction, exposed but organized cabling).
+    * **Symbiotic Technology:** Technology that mimics or integrates with nature (e.g., leaf-shaped solar panels, vine-wrapped circuits).
+    * **Holographic Interfaces:** Projected digital displays floating near organic machinery (HUDs, tracking monitors).
     * **Bio-Luminescence:** Living light sources, glowing organic elements (Biolume green accents).
-    * **Sustainable Materials:** Bamboo, recycled metals, warm woods + brushed copper/brass.
-    * **Verdant Integration:** Plants growing on/through technology (moss on machines).
+    * **Verdant Integration:** Plants growing on/through technology (moss on machines), but controlled and maintained.
 * **Exterior:** Bodi komposit dengan garis panel presisi tinggi. Aerodinamis & Modern. Fixed Silhouette.
 * **Interior:** Kontras antara teknologi bersih (putih/logam) dengan elemen organik (tanaman, panel kayu sintetis, pencahayaan sirkadian).
 * **Color Palette:**
 
 | Category | Name | Hex | Usage |
 |----------|------|-----|-------|
+| **Tech/Structure** | Lab White | `#F0F4F8` | Main walls, panels |
+| | Deep Space | `#2B2E3B` | Technical background |
+| | Industrial Grey| `#78909C` | Machinery parts |
 | **Base** | Bio-Lume Green | `#99e550` | Glow effects, energy |
 | | Sage Green | `#9DC183` | Crop foliage |
-| | Sage Dark | `#7AAA5C` | Foliage shadows |
 | | Soil Dark | `#4A3F35` | Ground base |
 | **Material** | Copper Main | `#B87333` | Tool bodies, tech frames |
 | | Living Wood | `#8B7355` | Organic handles |
 | | Warm Amber | `#FFB347` | UI glow, warmth |
-| | Bamboo | `#E8DCC4` | Structural elements |
 | **Crops** | Space Potato | `#8B7BA8` | Primary color |
 | | Neon Carrot | `#FF8C00` | Primary color |
 | **VFX** | Bio glow | `#99e550` | Energy active |
-| | Water | `#87CEEB` | Fluid dynamics |
+| | Hologram Blue | `#00F3FF` | Digital projections |
 
 * **Material Reference:**
-    * **Copper/Brass:** Tool bodies, machine frames (Warm patina).
-    * **Living Wood:** Handles, organic parts.
-    * **Bio-Glass:** Containers, displays (`#C5E8D5`).
+    * **Aerospace Composites:** Clean white/light grey panels, matte finish.
+    * **Holographic Glass:** Semi-transparent, projecting digital data.
+    * **Copper/Brass:** Tool bodies, machine frames (Warm patina) - *Accent Only*.
+    * **Living Wood:** Handles, organic parts - *Accent Only*.
     * **Biolume:** Energy, glow, active elements (`#99e550`).
 
 ## 5. PROGRESSION & SCALING (The "Sleeping Giant")
