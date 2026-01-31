@@ -51,9 +51,35 @@ Siklus permainan dirancang untuk memuaskan hasrat optimasi tanpa tekanan waktu y
 
 ### 4.1. The Ship: "Industrial Lab"
 * **Style Utama:** High-Fidelity Solarpunk. Optimis, bersih, dan ramah lingkungan.
+* **Visual Pillars:**
+    * **Organic + Tech Fusion:** Technology that mimics or integrates with nature (e.g., leaf-shaped solar panels, vine-wrapped circuits).
+    * **Bio-Luminescence:** Living light sources, glowing organic elements (Biolume green accents).
+    * **Sustainable Materials:** Bamboo, recycled metals, warm woods + brushed copper/brass.
+    * **Verdant Integration:** Plants growing on/through technology (moss on machines).
 * **Exterior:** Bodi komposit dengan garis panel presisi tinggi. Aerodinamis & Modern. Fixed Silhouette.
 * **Interior:** Kontras antara teknologi bersih (putih/logam) dengan elemen organik (tanaman, panel kayu sintetis, pencahayaan sirkadian).
-* **Color Palette:** *[TBD - To be defined by Game Artist]*
+* **Color Palette:**
+
+| Category | Name | Hex | Usage |
+|----------|------|-----|-------|
+| **Base** | Bio-Lume Green | `#99e550` | Glow effects, energy |
+| | Sage Green | `#9DC183` | Crop foliage |
+| | Sage Dark | `#7AAA5C` | Foliage shadows |
+| | Soil Dark | `#4A3F35` | Ground base |
+| **Material** | Copper Main | `#B87333` | Tool bodies, tech frames |
+| | Living Wood | `#8B7355` | Organic handles |
+| | Warm Amber | `#FFB347` | UI glow, warmth |
+| | Bamboo | `#E8DCC4` | Structural elements |
+| **Crops** | Space Potato | `#8B7BA8` | Primary color |
+| | Neon Carrot | `#FF8C00` | Primary color |
+| **VFX** | Bio glow | `#99e550` | Energy active |
+| | Water | `#87CEEB` | Fluid dynamics |
+
+* **Material Reference:**
+    * **Copper/Brass:** Tool bodies, machine frames (Warm patina).
+    * **Living Wood:** Handles, organic parts.
+    * **Bio-Glass:** Containers, displays (`#C5E8D5`).
+    * **Biolume:** Energy, glow, active elements (`#99e550`).
 
 ## 5. PROGRESSION & SCALING (The "Sleeping Giant")
 
