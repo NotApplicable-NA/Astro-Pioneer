@@ -1,0 +1,110 @@
+# GAME DESIGN DOCUMENT: ASTRO-PIONEER
+**Version:** 3.0 (Final Concept Integration)
+**Date:** 19 December 2025
+**Genre:** Cozy Automation / Survival Logistics
+**Theme:** Industrial Solarpunk, Bio-Innovation, Sustainable Crisis Management
+
+## 1. HIGH CONCEPT (Concept Lock)
+Astro-Pioneer adalah game simulasi manajemen di mana pemain mengubah kapal survei industri yang kaku menjadi ekosistem pertanian otonom yang cerdas. Pemain berperan sebagai Innovator, Farmer, dan Engineer yang harus menyeimbangkan efisiensi produksi pangan dengan eksplorasi planet demi menyelamatkan koloni manusia.
+
+## 2. NARRATIVE & LORE (Revised Logic)
+
+### 2.1. The Backstory: "The Desperate Launch"
+* **Situasi:** Krisis Bumi memuncak lebih cepat. Proyek kolonisasi jangka panjang dibatalkan demi solusi darurat.
+* **The Ship ("The Hull"):** Menggunakan rangka Ex-Surveyor Class Ships (Kapal Industri) yang diretrofit seadanya. Mesinnya canggih, tapi interiornya minim.
+* **Kondisi Awal:** Belum ada modul pertanian yang besar di kapal, hanya satu ruang kecil yang menjadi start pertanian. Tidak ada robot canggih siap pakai.
+* **Misi:** "Eksplorasi, Beradaptasi, Produksi." Kapal diluncurkan dengan peralatan dasar. Pemain harus mengembangkan teknologi pertanian dan sistem Life Support sendiri di perjalanan.
+
+### 2.2. Player Role: "The Field Innovator"
+* Pemain adalah Active Operator, bukan ilmuwan pasif di balik meja.
+* **Survival through Tech:** Pemain harus turun tangan langsung—mulai dari mencangkul tanah hingga mengelas instalasi interior kapal atau membangun pangkalan di permukaan planet.
+
+## 3. GAMEPLAY MECHANICS (The Hybrid Loop)
+
+### 3.1. Core Loop: Explore - Innovate - Cultivate
+Siklus permainan dirancang untuk memuaskan hasrat optimasi tanpa tekanan waktu yang mematikan.
+
+1.  **Planetary Layer (Exploration & Farming):** Mendarat di planet untuk menambang mineral mentah (Silika, Titanium, Besi) dan mencari bibit tanaman eksotis. Mampu menanam crop endemik di planet itu.
+2.  **Ship Layer (Management):** Mengolah material, membangun modul baru, dan mengotomatisasi pertanian di atas kapal yang sedang melaju.
+3.  **Farming (Manual Start):** Di awal, pemain menyiram manual (Watering Can), membuat kompos manual. Terasa berat dan lambat (sengaja, untuk memicu keinginan optimasi).
+4.  **Exploration (Resource & Data):** Turun ke planet untuk menambang mineral mentah dan memindai flora lokal untuk data riset.
+5.  **Fabrication (Engineering):** Menggunakan data eksplorasi untuk membuka Blueprint mesin baru. Mengolah mineral menjadi komponen konstruksi di kapal.
+6.  **Automation (The Payoff):** Membangun sistem (Pipa, Conveyor, Drone) untuk menggantikan tugas manual. Goal: Melihat kebun berjalan sendiri dengan efisiensi 100%.
+7.  **Economy & Progression:**
+    * **Credits:** Untuk alat fisik, bahan bakar, dan upgrade komponen kapal.
+    * **Trust (Reputation):** Diperoleh dengan mengirimkan logistik pangan ke koloni. Digunakan untuk membuka Blueprint teknologi tinggi.
+    * **Trading & Trust Barrier:** Jika Trust turun, item logistik tertentu menjadi terkunci (locked). Ini memaksa pemain untuk kembali "berbuat baik" kepada koloni.
+
+### 3.2. Automation Systems
+* **Grid System:** Interior kapal berbasis grid untuk penempatan presisi.
+* **Sprinklers & Pipes:** Manajemen aliran air. Pemain harus merancang tata letak pipa agar air dapat menjangkau semua crop.
+* **Bot-E (Drone):** Bukan magic, butuh Charging Station dan rute efisien. Mulai dari pengangkut sederhana hingga drone pemanen.
+
+### 3.3. Resource Management (Solarpunk Twist)
+* **Circular Economy:** Limbah tanaman (daun kering/buah busuk) BISA DIOLAH di Composter.
+* **Energy Balance (The Dual-Grid):**
+    * *Essential Power:* Sistem pendukung kehidupan (statis, tidak bisa mati).
+    * *Automation Power:* Sistem otomatisasi (Drone, Conveyor) butuh daya aktif. Jika konsumsi melebihi produksi, sistem ini berhenti.
+* **Power Indicators:** Lampu indikator (Hijau/Kuning/Merah) pada setiap modul dan status hover detail.
+
+## 4. VISUAL & ART DIRECTION (Final Consensus)
+
+### 4.1. The Ship: "Industrial Lab"
+* **Style Utama:** High-Fidelity Solarpunk. Optimis, bersih, dan ramah lingkungan.
+* **Exterior:** Bodi komposit dengan garis panel presisi tinggi. Aerodinamis & Modern. Fixed Silhouette.
+* **Interior:** Kontras antara teknologi bersih (putih/logam) dengan elemen organik (tanaman, panel kayu sintetis, pencahayaan sirkadian).
+* **Color Palette:** *[TBD - To be defined by Game Artist]*
+
+## 5. PROGRESSION & SCALING (The "Sleeping Giant")
+
+### 5.1. The Fabrication Process
+* **Internal Machine:** Component Fabricator.
+* **Input:** Raw Materials (Bijih Besi, Silika, Titanium).
+* **Output:** Structural Components (Hull Plates, Frames, Glass Panels, Pipes).
+
+### 5.2. Production Goals
+* **Misi:** Memenuhi kuota logistik pangan/bibit ke koloni.
+* **Reward:** Reputasi & Tech Data.
+
+### 5.3. The Construction Process
+* **Interior Evolution:** Kapal memiliki bentuk luar tetap, bagian dalamnya berbasis grid.
+* **The Tool (Omni-Welder):** Alat genggam untuk memotong, memposisikan, dan mengelas (Fusion Welding).
+* **Planetary Building (The Outpost):** Saat mendarat, pemain bisa membangun Planetary Outpost dengan kebebasan lebih tinggi (tangki air raksasa, gudang mineral, dll).
+
+## 6. TECHNICAL DATA TABLES
+
+### 6.1. Crop Database
+| ID | Nama | Waktu Tumbuh | Harga Jual | Syarat Khusus |
+| :--- | :--- | :--- | :--- | :--- |
+| CRP_001 | Space Potato | 120s | 18 Cr | Water Only |
+| CRP_002 | Neon Carrot | 300s | 60 Cr | Water Only |
+| CRP_003 | Flux Berry | 600s | 250 Cr | UV Light |
+| CRP_004 | Quantum Corn | 1200s | 550 Cr | High Fertilizer |
+| CRP_005 | Iron Root | 450s | N/A | Menghasilkan Bijih Besi (Ore) |
+
+### 6.2. Crafting & Automation Tiers
+| ID | Item Name | Crafting Cost | Function | Tier |
+| :--- | :--- | :--- | :--- | :--- |
+| MCH_01 | Basic Sprinkler | 5x Iron, 2x Copper | Auto-water 4 tiles | Tier 1 |
+| MCH_02 | Water Pump | 10x Iron, 5x Gear | Sumber air area 10x10 | Tier 1 |
+| BOT_01 | Bot-E (Drone) | 15x Titanium, 5x Chip | Transport hasil panen | Tier 2 |
+| AND_01 | Agri-Android | 50x Titanium, 10x CPU | Full cycle (Tanam-Panen) | Tier 3 |
+
+## 7. TECHNICAL FOUNDATION
+* [cite_start]**Grid System:** Class `GridCell` menyimpan status (Tanah, Lantai, Dinding) dan koordinat (x,y)[cite: 101].
+* **Interaction:** Implementasi Physics2D. Raycast untuk deteksi mouse.
+* **State Machine Tanaman:** Seed -> Growing -> Ready (Visual berubah, Harvest aktif).
+
+## 8. UI/UX SPECIFICATIONS
+* **Diegetic UI:** Status Oksigen dan Energi pada layar helm atau monitor dinding.
+* **Inventory:** Sistem slot murni (64x64px), stacking limit 99.
+* **Blueprint Mode:** Tampilan wireframe holografik saat merancang tata letak.
+
+---
+
+## 📋 Project Information
+
+* **Engine:** Unity 2022.3.62f1 (LTS)
+* **Platform:** Windows (x64)
+* **Visual:** Pixel Art Top-Down 2D (PPU: 32)
+* **Input:** Mouse & Keyboard (WASD + Raycast Interaction)
