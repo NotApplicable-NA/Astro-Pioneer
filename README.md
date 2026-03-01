@@ -1,5 +1,5 @@
 # GAME DESIGN DOCUMENT: ASTRO-PIONEER
-**Version:** 3.0 (Final Concept Integration)
+**Version:** 3.5 (Design Revision — PPU 16, Clean 16-Bit Style, Rover Buddy)
 **Date:** 19 December 2025
 **Genre:** Cozy Automation / Survival Logistics
 **Theme:** Industrial Solarpunk, Bio-Innovation, Sustainable Crisis Management
@@ -29,28 +29,35 @@ Siklus permainan dirancang untuk memuaskan hasrat optimasi tanpa tekanan waktu y
 3.  **Farming (Manual Start):** Di awal, pemain menyiram manual (Watering Can), membuat kompos manual. Terasa berat dan lambat (sengaja, untuk memicu keinginan optimasi).
 4.  **Exploration (Resource & Data):** Turun ke planet untuk menambang mineral mentah dan memindai flora lokal untuk data riset.
 5.  **Fabrication (Engineering):** Menggunakan data eksplorasi untuk membuka Blueprint mesin baru. Mengolah mineral menjadi komponen konstruksi di kapal.
-6.  **Automation (The Payoff):** Membangun sistem (Pipa, Conveyor, Drone) untuk menggantikan tugas manual. Goal: Melihat kebun berjalan sendiri dengan efisiensi 100%.
+6.  **Automation (The Payoff):** Membangun sistem (Pipa, Conveyor, Rover) untuk menggantikan tugas manual. Goal: Melihat kebun berjalan sendiri dengan efisiensi 100%.
 7.  **Economy & Progression:**
     * **Credits:** Untuk alat fisik, bahan bakar, dan upgrade komponen kapal.
     * **Trust (Reputation):** Diperoleh dengan mengirimkan logistik pangan ke koloni. Digunakan untuk membuka Blueprint teknologi tinggi.
     * **Trading & Trust Barrier:** Jika Trust turun, item logistik tertentu menjadi terkunci (locked). Ini memaksa pemain untuk kembali "berbuat baik" kepada koloni.
 
+### Active Systems (Sprint 4)
+- **Time System:** Day/Night cycle (5 min/day), global lighting.
+- **Resource System:** Oxygen, Energy, Water management.
+- **Inventory System:** Slot-based storage, hotbar integration.
+- **Power Management:** Wireless energy distribution (Generators & Batteries).
+- **Economy:** Selling via Shipping Bin, Credits tracking.
+
 ### 3.2. Automation Systems
 * **Grid System:** Interior kapal berbasis grid untuk penempatan presisi.
 * **Sprinklers & Pipes:** Manajemen aliran air. Pemain harus merancang tata letak pipa agar air dapat menjangkau semua crop.
-* **Bot-E (Drone):** Bukan magic, butuh Charging Station dan rute efisien. Mulai dari pengangkut sederhana hingga drone pemanen.
+* **Bot-E (Rover Buddy):** Bukan magic, butuh Charging Station dan rute efisien. Rover kecil yang bergerak di grid, mulai dari pengangkut sederhana hingga rover pemanen.
 
 ### 3.3. Resource Management (Solarpunk Twist)
 * **Circular Economy:** Limbah tanaman (daun kering/buah busuk) BISA DIOLAH di Composter.
 * **Energy Balance (The Dual-Grid):**
     * *Essential Power:* Sistem pendukung kehidupan (statis, tidak bisa mati).
-    * *Automation Power:* Sistem otomatisasi (Drone, Conveyor) butuh daya aktif. Jika konsumsi melebihi produksi, sistem ini berhenti.
+    * *Automation Power:* Sistem otomatisasi (Rover, Conveyor) butuh daya aktif. Jika konsumsi melebihi produksi, sistem ini berhenti.
 * **Power Indicators:** Lampu indikator (Hijau/Kuning/Merah) pada setiap modul dan status hover detail.
 
 ## 4. VISUAL & ART DIRECTION (Final Consensus)
 
 ### 4.1. The Ship: "Industrial Lab"
-* **Style Utama:** High-Fidelity Solarpunk. Optimis, bersih, dan ramah lingkungan.
+* **Style Utama:** Clean 16-Bit Solarpunk. Optimis, bersih, minim tekstur noise (shading halus), dan ramah lingkungan.
 * **Visual Pillars:**
     * **Industrial Precision:** Aerospace engineering aesthetic (clean lines, modular construction, exposed but organized cabling).
     * **Symbiotic Technology:** Technology that mimics or integrates with nature (e.g., leaf-shaped solar panels, vine-wrapped circuits).
@@ -116,7 +123,7 @@ Siklus permainan dirancang untuk memuaskan hasrat optimasi tanpa tekanan waktu y
 | :--- | :--- | :--- | :--- | :--- |
 | MCH_01 | Basic Sprinkler | 5x Iron, 2x Copper | Auto-water 4 tiles | Tier 1 |
 | MCH_02 | Water Pump | 10x Iron, 5x Gear | Sumber air area 10x10 | Tier 1 |
-| BOT_01 | Bot-E (Drone) | 15x Titanium, 5x Chip | Transport hasil panen | Tier 2 |
+| BOT_01 | Bot-E (Rover Buddy) | 15x Titanium, 5x Chip | Transport hasil panen | Tier 2 |
 | AND_01 | Agri-Android | 50x Titanium, 10x CPU | Full cycle (Tanam-Panen) | Tier 3 |
 
 ## 7. TECHNICAL FOUNDATION
@@ -135,5 +142,5 @@ Siklus permainan dirancang untuk memuaskan hasrat optimasi tanpa tekanan waktu y
 
 * **Engine:** Unity 2022.3.62f1 (LTS)
 * **Platform:** Windows (x64)
-* **Visual:** Pixel Art Top-Down 2D (PPU: 32)
+* **Visual:** Pixel Art Top-Down 2D (PPU: 16)
 * **Input:** Mouse & Keyboard (WASD + Raycast Interaction)
