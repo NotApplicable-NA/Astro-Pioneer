@@ -34,6 +34,7 @@ Siklus permainan dirancang untuk memuaskan hasrat optimasi tanpa tekanan waktu y
     * **Credits:** Untuk alat fisik, bahan bakar, dan upgrade komponen kapal.
     * **Trust (Reputation):** Diperoleh dengan mengirimkan logistik pangan ke koloni. Digunakan untuk membuka Blueprint teknologi tinggi.
     * **Trading & Trust Barrier:** Jika Trust turun, item logistik tertentu menjadi terkunci (locked). Ini memaksa pemain untuk kembali "berbuat baik" kepada koloni.
+    * **Trading Post:** BUKAN NPC fisik. Trading Post adalah mesin (Logistics Capsule / Comm-Terminal) tempat pemain memasukkan barang dan mengakses UI pertukaran. Mendukung imersi "Lone Innovator".
 
 ### Active Systems (Sprint 4)
 - **Time System:** Day/Night cycle (5 min/day), global lighting.
@@ -50,6 +51,7 @@ Siklus permainan dirancang untuk memuaskan hasrat optimasi tanpa tekanan waktu y
 ### 3.2.1. Entity Scale
 * **Player Character:** 1x2 Tile
 * **Bot-E (Rover Buddy):** 1x1 Tile
+* **Agri-Mech (Rover Traktor):** 2x2 Tile
 
 ### 3.3. Resource Management (Solarpunk Twist)
 * **Circular Economy:** Limbah tanaman (daun kering/buah busuk) BISA DIOLAH di Composter.
@@ -158,7 +160,7 @@ Siklus permainan dirancang untuk memuaskan hasrat optimasi tanpa tekanan waktu y
 | MCH_01 | Basic Sprinkler | 5x Iron, 2x Copper | Auto-water 4 tiles | Tier 1 |
 | MCH_02 | Water Pump | 10x Iron, 5x Gear | Sumber air area 10x10 | Tier 1 |
 | BOT_01 | Bot-E (Rover Buddy) | 15x Titanium, 5x Chip | Transport hasil panen | Tier 2 |
-| AND_01 | Agri-Android | 50x Titanium, 10x CPU | Full cycle (Tanam-Panen) | Tier 3 |
+| AND_01 | Agri-Mech (Rover Traktor) | 50x Titanium, 10x CPU | Full cycle (Tanam-Panen) | Tier 3 |
 
 ## 7. TECHNICAL FOUNDATION
 * [cite_start]**Grid System:** Class `GridCell` menyimpan status (Tanah, Lantai, Dinding) dan koordinat (x,y)[cite: 101].
@@ -170,6 +172,11 @@ Siklus permainan dirancang untuk memuaskan hasrat optimasi tanpa tekanan waktu y
 * **Inventory:** Sistem slot murni (64x64px), stacking limit 99.
 * **Blueprint Mode:** Tampilan wireframe holografik saat merancang tata letak.
 * **Exploration Map:** Holographic Tablet (Diegetic). Pemain menekan [M], karakter memegang tablet, dan peta holografik diproyeksikan di tengah layar. BUKAN minimap statis di pojok.
+
+### 8.1. Lore Delivery (Passive — No Cutscenes)
+* **Deskripsi Item (Scan Data):** Lore tersembunyi di deskripsi item yang di-scan.
+* **Abandoned Terminals:** Terminal rusak di planet yang bisa diakses untuk membaca log.
+* **Comm-Terminal Messages:** Pesan teks otomatis muncul di Comm-Terminal saat reputasi Trust naik.
 
 ---
 
