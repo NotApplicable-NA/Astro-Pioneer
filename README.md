@@ -57,6 +57,19 @@ Siklus permainan dirancang untuk memuaskan hasrat optimasi tanpa tekanan waktu y
     * *Essential Power:* Sistem pendukung kehidupan (statis, tidak bisa mati).
     * *Automation Power:* Sistem otomatisasi (Rover, Conveyor) butuh daya aktif. Jika konsumsi melebihi produksi, sistem ini berhenti.
 * **Power Indicators:** Lampu indikator (Hijau/Kuning/Merah) pada setiap modul dan status hover detail.
+* **Oxygen Management (The Cozy Survival):**
+    * *Depletion:* Saat pemain keluar dari kapal atau area aman untuk eksplorasi planet, tangki oksigen perlahan berkurang.
+    * *The Rescue (No Penalty):* Jika oksigen mencapai 0%, pemain tidak mati. Karakter akan pingsan (layar memudar). **Bot-E (Rover Buddy)** akan datang menyelamatkan dan mengangkut pemain kembali ke kasur di dalam kapal. Waktu dunia tidak terpotong (tidak *skip* hari), *Credits* tidak berkurang, dan barang di *inventory* tetap utuh. Hukuman satu-satunya hanyalah keharusan berjalan kaki kembali ke lokasi eksplorasi terakhir (*Walk of Shame*).
+    * *Oxy-Flora Expansion:* Untuk menjelajah lebih jauh, pemain dapat merekayasa genetika dan menanam bibit khusus penghasil oksigen (**Oxy-Flora**) di permukaan planet. Tanaman ini menciptakan "oase udara" alami yang mengisi ulang tangki pemain saat berada di dekatnya, menggantikan kebutuhan akan pilar/kabel oksigen mekanis.
+### 3.4. Planetary Hazards (Cozy Logistics Challenge)
+* **Shadow Canyons (Zona Gelap Ekstrem):**
+    Sesuai dengan pilar desain Cozy Automation, planet tidak memiliki musuh atau bahaya mematikan, melainkan tantangan logistik lingkungan.
+
+* **Konsep:** Terdapat area geografis tertentu di permukaan planet (seperti ngarai dalam atau gua) yang tidak terjangkau sinar matahari sama sekali.
+
+* **Efek:** Karena ketiadaan cahaya matahari, bibit penyuplai oksigen (Oxy-Flora) tidak dapat ditumbuhkan secara natural di area ini. Selain itu, mesin dan Rover bertenaga surya akan kehilangan daya dan mati total.
+
+* **Solusi Logistik:** Pemain harus membangun infrastruktur energi. Pemain perlu menarik jaringan listrik (menggunakan tiang baterai atau kabel estafet) dari area terang di luar ngarai, lalu memasang UV Light Pillars (Tiang Lampu UV) di dalam zona gelap. Cahaya UV buatan ini akan memicu pertumbuhan Oxy-Flora dan menyalakan mesin, perlahan mengubah zona gelap yang tidak bisa dieksplorasi menjadi pabrik tambang yang aman dan otomatis.
 
 ### 3.3.1. Survival & Oxygen (Cozy — No Death)
 > **DESIGN LOCK:** Pemain TIDAK BISA MATI. Tidak ada HP/Health system.
