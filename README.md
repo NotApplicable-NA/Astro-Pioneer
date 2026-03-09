@@ -53,6 +53,10 @@ Siklus permainan dirancang untuk memuaskan hasrat optimasi tanpa tekanan waktu y
     * *Essential Power:* Sistem pendukung kehidupan (statis, tidak bisa mati).
     * *Automation Power:* Sistem otomatisasi (Rover, Conveyor) butuh daya aktif. Jika konsumsi melebihi produksi, sistem ini berhenti.
 * **Power Indicators:** Lampu indikator (Hijau/Kuning/Merah) pada setiap modul dan status hover detail.
+* **Oxygen Management (The Cozy Survival):**
+    * *Depletion:* Saat pemain keluar dari kapal atau area aman untuk eksplorasi planet, tangki oksigen perlahan berkurang.
+    * *The Rescue (No Penalty):* Jika oksigen mencapai 0%, pemain tidak mati. Karakter akan pingsan (layar memudar). **Bot-E (Rover Buddy)** akan datang menyelamatkan dan mengangkut pemain kembali ke kasur di dalam kapal. Waktu dunia tidak terpotong (tidak *skip* hari), *Credits* tidak berkurang, dan barang di *inventory* tetap utuh. Hukuman satu-satunya hanyalah keharusan berjalan kaki kembali ke lokasi eksplorasi terakhir (*Walk of Shame*).
+    * *Oxy-Flora Expansion:* Untuk menjelajah lebih jauh, pemain dapat merekayasa genetika dan menanam bibit khusus penghasil oksigen (**Oxy-Flora**) di permukaan planet. Tanaman ini menciptakan "oase udara" alami yang mengisi ulang tangki pemain saat berada di dekatnya, menggantikan kebutuhan akan pilar/kabel oksigen mekanis.
 
 ## 4. VISUAL & ART DIRECTION (Final Consensus)
 
