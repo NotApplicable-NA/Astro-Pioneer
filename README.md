@@ -1,6 +1,6 @@
 # GAME DESIGN DOCUMENT: ASTRO-PIONEER
 **Version:** 3.5 (Design Revision — PPU 16, Clean 16-Bit Style, Rover Buddy)
-**Date:** 19 December 2025
+**Date:** 9 March 2026
 **Genre:** Cozy Automation / Survival Logistics
 **Theme:** Industrial Solarpunk, Bio-Innovation, Sustainable Crisis Management
 
@@ -45,7 +45,11 @@ Siklus permainan dirancang untuk memuaskan hasrat optimasi tanpa tekanan waktu y
 ### 3.2. Automation Systems
 * **Grid System:** Interior kapal berbasis grid untuk penempatan presisi.
 * **Sprinklers & Pipes:** Manajemen aliran air. Pemain harus merancang tata letak pipa agar air dapat menjangkau semua crop.
-* **Bot-E (Rover Buddy):** Bukan magic, butuh Charging Station dan rute efisien. Rover kecil yang bergerak di grid, mulai dari pengangkut sederhana hingga rover pemanen.
+* **Bot-E (Rover Buddy):** Bukan magic, butuh Charging Station dan rute efisien. Rover kecil beroda yang bergerak di grid, mengangkat crate di atas kepalanya. Mulai dari pengangkut sederhana hingga rover pemanen.
+
+### 3.2.1. Entity Scale
+* **Player Character:** 1x2 Tile
+* **Bot-E (Rover Buddy):** 1x1 Tile
 
 ### 3.3. Resource Management (Solarpunk Twist)
 * **Circular Economy:** Limbah tanaman (daun kering/buah busuk) BISA DIOLAH di Composter.
@@ -53,6 +57,23 @@ Siklus permainan dirancang untuk memuaskan hasrat optimasi tanpa tekanan waktu y
     * *Essential Power:* Sistem pendukung kehidupan (statis, tidak bisa mati).
     * *Automation Power:* Sistem otomatisasi (Rover, Conveyor) butuh daya aktif. Jika konsumsi melebihi produksi, sistem ini berhenti.
 * **Power Indicators:** Lampu indikator (Hijau/Kuning/Merah) pada setiap modul dan status hover detail.
+
+### 3.3.1. Survival & Oxygen (Cozy — No Death)
+> **DESIGN LOCK:** Pemain TIDAK BISA MATI. Tidak ada HP/Health system.
+
+* **Oxygen Tank (O2):** Saat di planet, O2 berkurang seiring waktu. Jika O2 = 0%, pemain **pingsan** (bukan mati).
+* **The Rescue:** Saat pingsan, Bot-E secara otomatis datang menyelamatkan dan membawa pemain kembali ke kasur kapal. **Tidak ada penalti** (tidak kehilangan waktu, item, atau uang). Pemain hanya perlu jalan kaki kembali ke lokasi semula.
+* **Oxy-Flora:** Tanaman rekayasa genetika yang memancarkan area oksigen mandiri. Pemain menanam bibit Oxy-Flora untuk memperluas zona eksplorasi di planet. (BUKAN menggunakan kabel/tiang oksigen).
+* **Tool Durability:** TIDAK ADA. Semua alat (Omni-Welder, Watering Can) bersifat **permanen** dan hanya bisa di-upgrade.
+
+### 3.4. Planetary Hazards: Shadow Canyons
+> **DESIGN LOCK:** Game ini TIDAK menggunakan rintangan mematikan (monster) atau cuaca merusak (badai). Fokus pada **puzzle logistik**.
+
+* **Shadow Canyons (Zona Gelap Ekstrem):** Area ngarai di planet yang tidak terkena cahaya matahari.
+* **Efek:** Mesin bertenaga surya **mati** dan **Oxy-Flora tidak bisa tumbuh** di zona gelap.
+* **Solusi Pemain:** Menarik jaringan listrik dari area terang dan membangun **UV Light Pillars** untuk menerangi area Shadow Canyon.
+* **Status Area:** Binary — Terang (Lit) atau Gelap (Dark). Tidak ada cuaca dinamis.
+* **Gameplay:** Puzzle logistik energi — pemain harus merencanakan jalur kabel dan penempatan UV Light Pillars secara strategis.
 
 ## 4. VISUAL & ART DIRECTION (Final Consensus)
 
@@ -135,6 +156,7 @@ Siklus permainan dirancang untuk memuaskan hasrat optimasi tanpa tekanan waktu y
 * **Diegetic UI:** Status Oksigen dan Energi pada layar helm atau monitor dinding.
 * **Inventory:** Sistem slot murni (64x64px), stacking limit 99.
 * **Blueprint Mode:** Tampilan wireframe holografik saat merancang tata letak.
+* **Exploration Map:** Holographic Tablet (Diegetic). Pemain menekan [M], karakter memegang tablet, dan peta holografik diproyeksikan di tengah layar. BUKAN minimap statis di pojok.
 
 ---
 
