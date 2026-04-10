@@ -23,9 +23,9 @@ Beberapa script **baru** perlu dipasang secara manual di scene:
 | Script | Pasang Di Mana | Cara |
 |:---|:---|:---|
 | `ExplorationTracker.cs` | **Player GameObject** (yang ber-tag `Player`) | Klik Player > Add Component > cari "ExplorationTracker" |
-| `SleepPod.cs` | Buat **Empty GameObject** bernama "SleepPod" di area kapal | Add Component > cari "SleepPod". Tambahkan Collider2D (Box) agar bisa diklik. |
-| `ShadowZone.cs` | Buat **Empty GameObject** bernama "ShadowZone_Test" di area planet | Add Component > cari "ShadowZone" |
-| `UVLightPillar.cs` | Buat **Empty GameObject** bernama "UVLightPillar_Test" di area planet | Add Component > cari "UVLightPillar" |
+| `SleepPod.cs` | **Klik kanan `--- MACHINES ---`** > Create Empty bernama "SleepPod" | Add Component `SleepPod`. WAJIB tambah **BoxCollider2D** dan **SpriteRenderer** agar bisa diklik. |
+| `ShadowZone.cs` | **Klik kanan `--- DEBUG ---`** > Create Empty bernama "ShadowZone_Test" | Add Component `ShadowZone`. Letakkan posisinya di atas grid tanah. |
+| `UVLightPillar.cs` | **Klik kanan `--- MACHINES ---`** > Create Empty bernama "UVLightPillar_Test" | Add Component `UVLightPillar`. Letakkan di dalam atau di dekat Shadow Zone. |
 
 > [!TIP]
 > Untuk SleepPod, pastikan sudah ada **BoxCollider2D** agar `OnMouseDown()` bisa di-trigger. Anda juga perlu **SpriteRenderer** (pakai placeholder sprite apapun) agar bisa diklik di Game View.
@@ -219,12 +219,13 @@ Jika tidak mau menunggu 15 menit, ubah `realSecondsPerDay` di Inspector menjadi 
 **Tujuan:** Memastikan tanaman tidak tumbuh di area gelap kecuali ada UV Pillar.
 
 ### Setup di Scene:
-1. Buat Empty GameObject bernama **"ShadowZone_Test"**.
-2. Add Component: `ShadowZone`.
-3. Di Inspector:
+1. **Klik kanan pada folder `--- DEBUG ---` di Hierarchy**, pilih Create Empty.
+2. Rename menjadi **"ShadowZone_Test"**.
+3. Add Component: `ShadowZone`.
+4. Di Inspector:
    - `Use Current Position` = **true**
-   - `Shadow Size` = **(3, 3)** (area 3x3)
-4. Letakkan di area planet yang bisa ditanami.
+   - `Shadow Size` = **(3, 3)** (area grid 3x3)
+5. Pindahkan posisi "ShadowZone_Test" menggunakan Move Tool (`W`) ke area tanah yang kosong.
 
 ### Test A — Growth Block (Tanpa UV):
 1. Tekan **Play**.
@@ -239,9 +240,10 @@ Jika tidak mau menunggu 15 menit, ubah `realSecondsPerDay` di Inspector menjadi 
 
 ### Test B — UV Pillar Recovery:
 5. **Tanpa menghentikan Play Mode**, buat UV Pillar:
-   - Drag Empty GameObject baru ke scene.
+   - **Klik kanan folder `--- MACHINES ---`**, pilih Create Empty.
+   - Rename jadi **"UV Pillar"**.
    - Add Component: `UVLightPillar`.
-   - Letakkan **dekat** atau **di dalam** Shadow Zone (dekat tanaman).
+   - Geser posisinya menggunakan Move Tool agar berada **di dalam** atau **di batas** Shadow Zone.
 6. Siram tanaman lagi.
 7. Tunggu Day Rollover berikutnya.
 
