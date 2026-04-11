@@ -38,15 +38,17 @@ Beberapa sistem baru merupakan Singleton global yang harus dimuat:
 ### Langkah Persiapan:
 1. Di jendela **Hierarchy**, klik kanan lalu pilih **Create Empty**, beri nama `AgriMech_Test`.
 2. Klik `AgriMech_Test`, lalu di jendela **Inspector**, klik **Add Component** dan cari `AgriMech`.
+3. Klik **Add Component** lagi dan cari **SpriteRenderer**. Di field Sprite-nya, klik titik kecil dan pilih Sprite kotak apa saja agar objek ini **kelihatan** di layar (PENTING!).
+4. Klik **Add Component** lagi dan cari **BoxCollider2D**.
 
 ### Langkah Testing:
 1. Tekan tombol **Play** di atas editor.
 2. Klik GameObject `AgriMech_Test` di *Hierarchy*, lalu arahkan kursor ke *Scene View*.
 
 ### Yang Diverifikasi:
-- [✅] Ada Gizmo (kotak biru transparan) sebesar 2x2 mengelilingi AgriMech di *Scene View*.
-- [✅] Jika AgriMech ditempatkan di atas grid tanaman, tanaman yang bersangkutan gagal ditanam atau memunculkan peringatan.
-- [✅] Pipa (Micro Grid) dapat ditempatkan di cell yang sama dengan Pagar (bisa lebih dari satu Micro objek per GridCell).
+- [x] Ada Gizmo (kotak biru transparan) sebesar 2x2 mengelilingi AgriMech di *Scene View*.
+- [x] Jika AgriMech ditempatkan di atas grid tanaman, tanaman yang bersangkutan gagal ditanam atau memunculkan peringatan.
+- [x] Pipa (Micro Grid) dapat ditempatkan di cell yang sama dengan Pagar (bisa lebih dari satu Micro objek per GridCell).
 
 ---
 
@@ -55,18 +57,20 @@ Beberapa sistem baru merupakan Singleton global yang harus dimuat:
 **Tujuan:** Memastikan EnclosureSystem dapat mendeteksi kurungan Fence tertutup menggunakan *Flood Fill*.
 
 ### Langkah Persiapan:
-1. Di jendela **Hierarchy**, klik kanan dan pilih **Create Empty**, beri nama `Pagar_1`, lalu copy-paste hingga membentuk setidaknya 8 pagar (membuat ring 3x3 yang bolong tengahnya).
-2. Posisikan pagar-pagar tersebut secara kotak bersambung menggunakan Move Tool (W). Pastikan tidak ada rongga.
-3. Buat satu GameObject kosong lagi bernama `Sapi_Alien`.
-4. Di **Inspector** `Sapi_Alien`, klik **Add Component** dan cari `FaunaAI`. Posisikan Sapi ini tepat di tengah-tengah kurungan pagar tadi.
+1. Di jendela **Hierarchy**, klik kanan dan pilih **Create Empty**, beri nama `Pagar_1`. 
+2. Tambahkan komponen **SpriteRenderer** ke `Pagar_1`, pilih sprite balok/kotak agar pagarnya **bisa dilihat dengan mata**.
+3. Copy-paste `Pagar_1` tadi (Ctrl+D/Cmd+D) hingga membentuk minimal 8 pagar untuk menyusun persegi 3x3 yang bolong di tengahnya.
+4. Posisikan pagar-pagar tersebut secara bersambung rapat menggunakan Move Tool (W). Pastikan tidak ada rongga.
+5. Buat satu GameObject kosong lagi bernama `Sapi_Alien`.
+6. Di **Inspector** `Sapi_Alien`, klik **Add Component** dan cari `FaunaAI`, juga beri **SpriteRenderer** (misal bola/kucing) agar hewannya nampak! Posisikan Sapi ini tepat di tengah-tengah ruang kosong di dalam pagar tadi.
 
 ### Langkah Testing:
 1. Tekan tombol **Play**.
 
 ### Yang Diverifikasi:
-- [✅] Buka Console: Lihat pesan `[EnclosureSystem] Found Enclosure 'Enclosure_0' with X tiles capacity.`
-- [✅] Sapi (FaunaAI) yang ditempatkan di dalam kandang akan mondar-mandir secara diam-diam.
-- [✅] Sapi tersebut **TIDAK PERNAH** berjalan menembus atau melebihi batas Pagar (tertahan di dalam `validMoves`).
+- [-] Buka Console: Lihat pesan `[EnclosureSystem] Found Enclosure 'Enclosure_0' with X tiles capacity.`
+- [-] Sapi (FaunaAI) yang ditempatkan di dalam kandang akan mondar-mandir secara diam-diam.
+- [-] Sapi tersebut **TIDAK PERNAH** berjalan menembus atau melebihi batas Pagar (tertahan di dalam `validMoves`).
 
 ---
 
@@ -75,19 +79,20 @@ Beberapa sistem baru merupakan Singleton global yang harus dimuat:
 **Tujuan:** Memastikan AgriMech bergerak linear maju dan langsung menanam bibit di belakangnya.
 
 ### Langkah Persiapan:
-1. Klik GameObject `AgriMech_Test` yang sudah kita buat di Test 1.
+1. Klik GameObject `AgriMech_Test` yang sudah kita buat di Test 1. (Pastikan dia memiliki SpriteRenderer).
 2. Di **Inspector** komponen `AgriMech`, cari field bernama **Seed To Plant**.
 3. Buka folder `Assets/Data/Items` di *Project window*, lalu klik dan drag file `Item_Seed_SpacePotato` ke dalam field **Seed To Plant** tersebut.
+4. Pastikan `bypassPower` dicentang (default-nya `true`) agar mesin ini berjalan tanpa perlu sistem listrik lengkap.
 
 ### Langkah Testing:
 1. Tekan tombol **Play**.
 2. Biarkan game berjalan selama beberapa detik tanpa input apapun.
 
 ### Yang Diverifikasi:
-- [✅] AgriMech otomatis bergeser maju setiap beberapa detik.
-- [✅] Tepat di atas *tile* yang baru saja ditinggalkannya, muncul `CropInstance` bibit Space Potato.
-- [✅] Console mencatat pesan: `[AgriMech] Moved to (X, Y)`.
-- [✅] Jika menabrak tembok atau ujung Grid, AgriMech membalikkan arah pergerakannya (Reversing direction).
+- [-] AgriMech otomatis bergeser maju setiap beberapa detik.
+- [-] Tepat di atas *tile* yang baru saja ditinggalkannya, muncul `CropInstance` bibit Space Potato.
+- [-] Console mencatat pesan: `[AgriMech] Moved to (X, Y)`.
+- [-] Jika menabrak tembok atau ujung Grid, AgriMech membalikkan arah pergerakannya (Reversing direction).
 
 ---
 
@@ -98,16 +103,17 @@ Beberapa sistem baru merupakan Singleton global yang harus dimuat:
 ### Langkah Persiapan:
 1. Di **Hierarchy**, klik kanan -> **Create Empty**, beri nama `AutoHarvester_Test`.
 2. Di **Inspector**, klik **Add Component** dan cari `MachineHarvester`.
-3. Tanam crop (tanaman) menggunakan `CropManager` atau taruh prefab tanaman di sel yang berbatasan langsung dengan Harvester (kiri/kanan/atas).
-4. Buat tanaman tersebut mencapai fase *harvestable* (Tumbuh maksimal = Stage 3). Jika malas menunggu, saat Play Mode klik GameObject tanaman tersebut, cari `CropInstance` di Inspector, dan ubah angkanya ke 3.
+3. Tambahkan juga **SpriteRenderer** agar Anda bisa melihat di mana Harvester-nya berada. Posisi ini adalah titik pusat radius 3x3.
+4. Tanam crop (tanaman) menggunakan `CropManager` atau taruh prefab tanaman di sel yang berbatasan langsung dengan Harvester (kiri/kanan/atas/bawah).
+5. Buat tanaman tersebut mencapai fase *harvestable* (Tumbuh maksimal = Stage 3). Jika malas menunggu, saat Play Mode klik GameObject tanaman tersebut, cari `CropInstance` di Inspector, dan ubah angkanya ke 3.
 
 ### Langkah Testing:
 1. Tekan **Play**.
 
 ### Yang Diverifikasi:
-- [✅] Console: `[MachineHarvester] Scanning 3x3 at (X, Y)`.
-- [✅] Saat tanaman sudah di-stage klimaks, Harvester membabatnya secara otomatis.
-- [✅] Console: `[MachineHarvester] Auto-harvesting Space Potato at (X, Y)`.
+- [-] Console: `[MachineHarvester] Scanning 3x3 at (X, Y)`.
+- [-] Saat tanaman sudah di-stage klimaks, Harvester membabatnya secara otomatis.
+- [-] Console: `[MachineHarvester] Auto-harvesting Space Potato at (X, Y)`.
 
 ---
 
@@ -117,7 +123,7 @@ Beberapa sistem baru merupakan Singleton global yang harus dimuat:
 
 ### Langkah Persiapan:
 1. Di **Hierarchy**, klik kanan -> **Create Empty**, beri nama `Composter_Test`.
-2. Di **Inspector**, tambahkan komponen `MachineComposter` dan komponen `BoxCollider2D` (agar bisa diklik).
+2. Di **Inspector**, tambahkan komponen `MachineComposter`, komponen **SpriteRenderer** (biar kelihatan tong-nya), dan komponen **BoxCollider2D** (agar bisa diklik oleh Mouse).
 3. Buka folder `Assets/Data/Items`.
 4. Drag file `Item_BioFuelCell` ke kotak field **Input Item** di Inspector.
 5. Drag file `Item_BioFertilizer` (opsi lain jika belum ada, pakai item apapun) ke field **Output Item** di Inspector.
@@ -128,9 +134,9 @@ Beberapa sistem baru merupakan Singleton global yang harus dimuat:
 3. Coba panggil method eksekusinya: Di Inspector `Composter_Test`, klik titik tiga di sudut kanan atas komponen, atau langsung klik collidernya di Game Mode dengan membawa item yang sesuai. Panggil **TryAddInput()**.
 
 ### Yang Diverifikasi:
-- [✅] Saat dimasukkan input, Composter langsung menghitung mundur waktu *processingTime*.
-- [✅] Saat waktu telah habis, muncul log `[MachineComposter] Processed 1 Fertilizer.`.
-- [✅] Saat diklik dengan tangan kosong (TryCollectOutput), item perlahan muncul atau menambah ke `InventoryManager`.
+- [-] Saat dimasukkan input, Composter langsung menghitung mundur waktu *processingTime*.
+- [-] Saat waktu telah habis, muncul log `[MachineComposter] Processed 1 Fertilizer.`.
+- [-] Saat diklik dengan tangan kosong (TryCollectOutput), item perlahan muncul atau menambah ke `InventoryManager`.
 
 ---
 
@@ -147,9 +153,9 @@ Beberapa sistem baru merupakan Singleton global yang harus dimuat:
 6. Klik pada game *checkbox*, atau panggil `AddEcoScore(1)`.
 
 ### Yang Diverifikasi:
-- [✅] Nilai akan terhitung *Clamp* di limit 100.
-- [✅] Console meledak dengan tulisan: `[EcoTracker] END GAME CONDITIONS MET! Epilogue Transmission Incoming...`.
-- [✅] Log di atas hanya akan muncul **satu kali** berkat Flag `hasTriggeredEndGame = true`.
+- [-] Nilai akan terhitung *Clamp* di limit 100.
+- [-] Console meledak dengan tulisan: `[EcoTracker] END GAME CONDITIONS MET! Epilogue Transmission Incoming...`.
+- [-] Log di atas hanya akan muncul **satu kali** berkat Flag `hasTriggeredEndGame = true`.
 
 ---
 
