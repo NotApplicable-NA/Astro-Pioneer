@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1259f3618045d7c42898347c4f16d2f1, type: 3}
+  m_Name: Planet_Canyons
+  m_EditorClassIdentifier: 
+  planetID: Planet_Canyons
+  displayName: C-V0 (Shadow Canyons)
+  description: Dark canyons with intense gravity and zero sunlight. Solar power fails
+    here.
+  planetIcon: {fileID: 0}
+  biome: 2
+  sceneName: SampleScene
+  oxygenDrainRate: 2
+  resourceNodes: []
+  difficultyLevel: 5
+  trustRequired: 2000
+  hasShadowCanyons: 1

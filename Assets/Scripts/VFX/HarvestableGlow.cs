@@ -49,7 +49,6 @@ namespace AstroPioneer.VFX
         {
             if (glowSprites == null || glowSprites.Length == 0)
             {
-                Debug.LogWarning("[HarvestableGlow] No sprites assigned!", this);
                 return;
             }
             

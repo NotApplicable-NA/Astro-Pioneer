@@ -6,8 +6,8 @@ using AstroPioneer.VFX;
 namespace AstroPioneer.Systems
 {
     /// <summary>
-    /// CropInstance - Runtime instance untuk individual crop.
-    /// Handles growth progression, watering, dan harvesting.
+    /// CropInstance — Runtime instance for an individual crop.
+    /// Handles growth progression, watering, light checks, and harvesting.
     /// </summary>
     public class CropInstance : MonoBehaviour
     {
@@ -15,15 +15,15 @@ namespace AstroPioneer.Systems
         [SerializeField] private CropData cropData;
         
         [Header("Runtime State")]
-        [SerializeField] private int currentStage = 0; // 0-3
-        [SerializeField] private float growthTimer = 0f;
+        [SerializeField] private int currentStage = 0;
         [SerializeField] private bool isWatered = false;
         [SerializeField] private Vector2Int gridPosition;
         
         private SpriteRenderer spriteRenderer;
         private GrowthTransitionVFX growthVFX;
         private HarvestableGlow harvestableGlow;
-        private bool _isHarvesting = false; // Guard flag for double harvest prevention
+        private bool _isHarvesting = false;
+        private bool _gridPositionSet = false;
         
         // Events
         public delegate void CropEvent(CropInstance crop);
@@ -32,164 +32,163 @@ namespace AstroPioneer.Systems
         
         void Awake()
         {
-            // Setup sprite renderer
             spriteRenderer = GetComponent<SpriteRenderer>();
             if (spriteRenderer == null)
-            {
                 spriteRenderer = gameObject.AddComponent<SpriteRenderer>();
-            }
-            
-            // Configure rendering
+
             if (cropData != null)
             {
                 spriteRenderer.sortingLayerName = cropData.sortingLayer;
-                spriteRenderer.sortingOrder = cropData.orderInLayer;
+                spriteRenderer.sortingOrder = cropData.orderInLayer + 10;
             }
         }
         
         void Start()
         {
-            // Scale to fit grid cell (PPU 32, cell size 1.0)
-            // Crop sprites are ~680-800px, need scaling down
-            transform.localScale = Vector3.one * 0.03f;
-            
-            // Setup VFX components
+            transform.localScale = Vector3.one * 0.0625f; // PPU 16, cell size 1.0
+
             growthVFX = GetComponentInChildren<GrowthTransitionVFX>();
             harvestableGlow = GetComponentInChildren<HarvestableGlow>();
-            
+            UpdateVisual();
+
+            if (TimeManager.Instance != null)
+                TimeManager.Instance.OnDayChanged += HandleDayChanged;
+
+            // Auto-register only for scene-placed crops not initialized via PlantCrop
+            if (GridManager.Instance != null && !_gridPositionSet)
+            {
+                gridPosition = GridManager.Instance.WorldToGridPosition(transform.position);
+                if (!GridManager.Instance.GetOccupiedCells().ContainsKey(gridPosition))
+                    GridManager.Instance.TryOccupyCell(gridPosition, gameObject);
+            }
+        }
+
+        void OnDestroy()
+        {
+            if (TimeManager.Instance != null)
+                TimeManager.Instance.OnDayChanged -= HandleDayChanged;
+        }
+
+        // ─── Growth Logic ───
+
+        private void HandleDayChanged(int day)
+        {
+            if (cropData == null || currentStage >= 3) return;
+            if (!isWatered) return;
+
+            if (IsInDarkness())
+            {
+                UpdateVisual();
+                return;
+            }
+
+            AdvanceStage();
+            isWatered = false;
             UpdateVisual();
         }
         
-        void Update()
+        private void AdvanceStage()
         {
-            if (cropData == null) return;
-            if (currentStage >= 3) return; // Fully grown, no more progression
-            
-            // Issue 4 Fix: Null and bounds check for array access
-            if (cropData.growthTimePerStage == null)
+            if (currentStage >= 3) return;
+
+            currentStage++;
+            UpdateVisual();
+
+            if (growthVFX != null)
+                growthVFX.PlayAtPosition(transform.position);
+
+            OnCropStageChanged?.Invoke(this);
+
+            if (currentStage >= 3 && harvestableGlow != null)
+                harvestableGlow.StartGlow();
+        }
+
+        // ─── Light Check ───
+
+        /// <summary>
+        /// Returns true if this crop is in a dark zone without UV light coverage.
+        /// Uses a hybrid approach: GridManager cell lighting → Physics overlap → Distance fallback.
+        /// </summary>
+        private bool IsInDarkness()
+        {
+            bool isDim = GridManager.Instance != null && !GridManager.Instance.IsCellLit(gridPosition);
+
+            // Physics overlap check
+            bool inShadowZone = false;
+            bool hasUVLight = false;
+            Collider2D[] hits = Physics2D.OverlapCircleAll(transform.position, 0.5f);
+            foreach (var hit in hits)
             {
-                Debug.LogError($"[CropInstance] growthTimePerStage is null for crop {cropData.displayName}", this);
-                return;
+                if (hit.GetComponent<AstroPioneer.Systems.Environment.ShadowZone>() != null) inShadowZone = true;
+                if (hit.GetComponent<AstroPioneer.Machines.UVLightPillar>() != null) hasUVLight = true;
             }
-            
-            if (currentStage >= cropData.growthTimePerStage.Length)
+
+            // Distance-based fallback
+            foreach (var shadow in FindObjectsOfType<AstroPioneer.Systems.Environment.ShadowZone>())
             {
-                Debug.LogError($"[CropInstance] Invalid stage {currentStage} for crop {cropData.displayName} (array length: {cropData.growthTimePerStage.Length})", this);
-                return;
+                if (Vector3.Distance(transform.position, shadow.transform.position) < 2f) inShadowZone = true;
             }
-            
-            // QA Fix: Watering Logic (Option B - Require water to grow)
-            if (!isWatered) return; // Crops don't grow without water
-            
-            // Growth progression
-            growthTimer += Time.deltaTime;
-            float stageTime = cropData.growthTimePerStage[currentStage];
-            
-            if (growthTimer >= stageTime)
+            foreach (var uv in FindObjectsOfType<AstroPioneer.Machines.UVLightPillar>())
             {
-                AdvanceStage();
-                isWatered = false; // Reset after stage advance (requires re-watering)
+                if (Vector3.Distance(transform.position, uv.transform.position) < 3f) hasUVLight = true;
             }
+
+            return (isDim || inShadowZone) && !hasUVLight;
         }
         
-        void AdvanceStage()
-        {
-            if (currentStage < 3)
-            {
-                currentStage++;
-                growthTimer = 0f;
-                UpdateVisual();
-                
-                // Trigger growth transition VFX
-                if (growthVFX != null)
-                {
-                    growthVFX.PlayAtPosition(transform.position);
-                }
-                
-                OnCropStageChanged?.Invoke(this);
-                
-                // Enable harvestable glow at stage 3
-                if (currentStage >= 3 && harvestableGlow != null)
-                {
-                    harvestableGlow.StartGlow();
-                }
-            }
-        }
-        
-        public void WaterCrop()
-        {
-            isWatered = true;
-            // TODO: Visual feedback (TICKET-012)
-        }
-        
-        public bool IsHarvestable()
-        {
-            return currentStage >= 3; // Fully grown
-        }
+        // ─── Player Actions ───
+
+        public void WaterCrop() => isWatered = true;
+        public bool IsHarvestable() => currentStage >= 3;
         
         public void Harvest()
         {
-            if (!IsHarvestable()) return;
-            if (_isHarvesting) return; // QA Fix: Guard flag to prevent double harvest
+            if (!IsHarvestable() || _isHarvesting) return;
             _isHarvesting = true;
             
-            Debug.Log($"[CropInstance] Harvesting {cropData.displayName} at {gridPosition}");
-            
-            // TODO: TICKET-016 (Sprint 4) - Add to inventory
-            // InventoryManager.Instance?.AddItem(cropData.harvestItemID, cropData.harvestQuantity);
-            
-            // TODO: TICKET-012 - Harvest VFX
-            // HarvestVFX.PlayAtPosition(transform.position);
-            
-            // Trigger event
             OnCropHarvested?.Invoke(this);
-            
-            // Issue 5 Fix: Don't duplicate ReleaseCell - CropManager.RemoveCrop already handles it
-            // Cleanup - remove from registry first, then destroy
+
             if (CropManager.Instance != null)
-            {
                 CropManager.Instance.RemoveCrop(gridPosition);
-            }
-            
+
             Destroy(gameObject);
         }
         
-        void UpdateVisual()
+        // ─── Visual ───
+
+        private void UpdateVisual()
         {
-            // Issue 4 Fix: Comprehensive null and bounds checks
-            if (cropData == null)
-            {
-                Debug.LogWarning("[CropInstance] cropData is null, cannot update visual", this);
-                return;
-            }
-            
-            if (cropData.growthStageSprites == null)
-            {
-                Debug.LogWarning($"[CropInstance] growthStageSprites is null for crop {cropData.displayName}", this);
-                return;
-            }
-            
-            if (currentStage >= cropData.growthStageSprites.Length)
-            {
-                Debug.LogWarning($"[CropInstance] currentStage {currentStage} out of bounds for growthStageSprites (length: {cropData.growthStageSprites.Length})", this);
-                return;
-            }
-            
-            if (cropData.growthStageSprites[currentStage] != null)
-            {
-                spriteRenderer.sprite = cropData.growthStageSprites[currentStage];
-            }
-            else
-            {
-                Debug.LogWarning($"[CropInstance] Sprite for stage {currentStage} is null for crop {cropData.displayName}", this);
-            }
+            if (cropData == null || cropData.growthStageSprites == null) return;
+            if (currentStage >= cropData.growthStageSprites.Length) return;
+
+            Sprite stageSprite = cropData.growthStageSprites[currentStage];
+            if (stageSprite == null) return;
+
+            spriteRenderer.sprite = stageSprite;
+            spriteRenderer.color = IsInDarkness()
+                ? new Color(0.4f, 0.4f, 0.6f, 1.0f)
+                : Color.white;
         }
         
-        // Getters & Setters
+        // ─── Accessors ───
+
         public CropData GetCropData() => cropData;
         public void SetCropData(CropData data) => cropData = data;
         public int GetCurrentStage() => currentStage;
+        public bool GetIsWatered() => isWatered;
         public Vector2Int GetGridPosition() => gridPosition;
-        public void SetGridPosition(Vector2Int pos) => gridPosition = pos;
+
+        public void SetGridPosition(Vector2Int pos)
+        {
+            gridPosition = pos;
+            _gridPositionSet = true;
+        }
+
+        public void SetStageData(int stage, bool watered)
+        {
+            currentStage = stage;
+            isWatered = watered;
+            UpdateVisual();
+        }
     }
 }

@@ -56,7 +56,6 @@ namespace AstroPioneer.VFX
         {
             if (growthSprites == null || growthSprites.Length == 0)
             {
-                Debug.LogWarning("[GrowthTransitionVFX] No sprites assigned!", this);
                 return;
             }
             

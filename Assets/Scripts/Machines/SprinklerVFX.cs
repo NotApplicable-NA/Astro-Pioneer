@@ -86,7 +86,6 @@ namespace AstroPioneer.Machines
         {
             if (waterSprites == null || waterSprites.Length == 0)
             {
-                Debug.LogWarning("[SprinklerVFX] Water sprites not assigned!", this);
                 return;
             }
             

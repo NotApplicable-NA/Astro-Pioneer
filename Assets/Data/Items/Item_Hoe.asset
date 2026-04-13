@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f4d6ea7a3e98598489d89be76b882835, type: 3}
+  m_Name: Item_Hoe
+  m_EditorClassIdentifier: 
+  id: Item_Hoe
+  displayName: Cangkul (Hoe)
+  description: A sturdy hoe for tilling soil and dismantling machines.
+  icon: {fileID: 21300000, guid: 8d371d969802ccc4288a72f8b5b7265c, type: 3}
+  isStackable: 1
+  maxStackSize: 1
+  type: 1
+  sellPrice: 10
+  buyPrice: 10
+  plantData: {fileID: 0}
+  placeablePrefab: {fileID: 0}
+  dimensions: {x: 1, y: 1}

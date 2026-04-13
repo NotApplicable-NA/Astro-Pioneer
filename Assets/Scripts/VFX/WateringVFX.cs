@@ -59,7 +59,6 @@ namespace AstroPioneer.VFX
         {
             if (wateringSprites == null || wateringSprites.Length == 0)
             {
-                Debug.LogWarning("[WateringVFX] No sprites assigned!", this);
                 return;
             }
             

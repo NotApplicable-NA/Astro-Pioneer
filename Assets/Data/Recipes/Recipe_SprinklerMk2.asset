@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b7815cd1d0e3c96449a4225536056156, type: 3}
+  m_Name: Recipe_SprinklerMk2
+  m_EditorClassIdentifier: 
+  recipeID: recipe_sprinkler_mk2
+  displayName: Sprinkler Mk2
+  description: Upgrade a sprinkler using Bio Fuel Cells.
+  ingredients:
+  - item: {fileID: 11400000, guid: 04a6addb00eb0db4383afdd1b0ce6110, type: 2}
+    quantity: 2
+  - item: {fileID: 11400000, guid: 063dfba4b4f85014787cf1f5461cfff1, type: 2}
+    quantity: 1
+  resultItem: {fileID: 11400000, guid: a76cf25ef94a47a4c8c5f7efd50dd4f7, type: 2}
+  resultQuantity: 1
+  craftTime: 6
+  requiredStation: 1
+  trustRequired: 0

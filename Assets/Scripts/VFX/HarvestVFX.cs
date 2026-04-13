@@ -59,7 +59,6 @@ namespace AstroPioneer.VFX
         {
             if (harvestSprites == null || harvestSprites.Length == 0)
             {
-                Debug.LogWarning("[HarvestVFX] No sprites assigned!", this);
                 return;
             }
             

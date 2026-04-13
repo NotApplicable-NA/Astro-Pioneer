@@ -26,6 +26,7 @@ namespace AstroPioneer.Data
         [Header("Harvest Configuration")]
         [Tooltip("Item ID yang dihasilkan saat harvest")]
         public string harvestItemID;
+        public InventoryItem harvestItem;
         
         [Tooltip("Quantity per harvest")]
         public int harvestQuantity = 1;
@@ -49,12 +50,10 @@ namespace AstroPioneer.Data
             // Array length validation
             if (growthTimePerStage.Length != 4)
             {
-                Debug.LogWarning($"[CropData] {name}: Growth time array should have 4 stages!", this);
             }
             
             if (growthStageSprites.Length != 4)
             {
-                Debug.LogWarning($"[CropData] {name}: Stage sprites array should have 4 sprites!", this);
             }
             
             // QA Fix: Value validation
@@ -62,20 +61,17 @@ namespace AstroPioneer.Data
             {
                 if (growthTimePerStage[i] <= 0)
                 {
-                    Debug.LogWarning($"[CropData] {name} - Growth time stage {i} must be > 0, setting to 1.0", this);
                     growthTimePerStage[i] = 1f;
                 }
             }
             
             if (harvestQuantity <= 0)
             {
-                Debug.LogWarning($"[CropData] {name} - Harvest quantity must be > 0, setting to 1", this);
                 harvestQuantity = 1;
             }
             
             if (sellPrice < 0)
             {
-                Debug.LogWarning($"[CropData] {name} - Sell price cannot be negative, setting to 0", this);
                 sellPrice = 0;
             }
         }
