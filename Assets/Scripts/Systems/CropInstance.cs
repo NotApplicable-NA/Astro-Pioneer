@@ -12,7 +12,7 @@ namespace AstroPioneer.Systems
     public class CropInstance : MonoBehaviour
     {
         [Header("Crop Configuration")]
-        [SerializeField] private CropData cropData;
+        [SerializeField] private CropStructureData cropData;
         
         [Header("Runtime State")]
         [SerializeField] private int currentStage = 0;
@@ -23,7 +23,6 @@ namespace AstroPioneer.Systems
         private GrowthTransitionVFX growthVFX;
         private HarvestableGlow harvestableGlow;
         private bool _isHarvesting = false;
-        private bool _gridPositionSet = false;
         
         // Events
         public delegate void CropEvent(CropInstance crop);
@@ -38,8 +37,8 @@ namespace AstroPioneer.Systems
 
             if (cropData != null)
             {
-                spriteRenderer.sortingLayerName = cropData.sortingLayer;
-                spriteRenderer.sortingOrder = cropData.orderInLayer + 10;
+                spriteRenderer.sortingLayerName = "Crops";
+                spriteRenderer.sortingOrder = 10;
             }
         }
         
@@ -51,27 +50,18 @@ namespace AstroPioneer.Systems
             harvestableGlow = GetComponentInChildren<HarvestableGlow>();
             UpdateVisual();
 
-            if (TimeManager.Instance != null)
-                TimeManager.Instance.OnDayChanged += HandleDayChanged;
-
             // Auto-register only for scene-placed crops not initialized via PlantCrop
-            if (GridManager.Instance != null && !_gridPositionSet)
-            {
-                gridPosition = GridManager.Instance.WorldToGridPosition(transform.position);
-                if (!GridManager.Instance.GetOccupiedCells().ContainsKey(gridPosition))
-                    GridManager.Instance.TryOccupyCell(gridPosition, gameObject);
-            }
+            TryRegisterToGrid();
         }
 
-        void OnDestroy()
+        private void TryRegisterToGrid()
         {
-            if (TimeManager.Instance != null)
-                TimeManager.Instance.OnDayChanged -= HandleDayChanged;
+            // CropManager DOD directly sets IDs
         }
 
         // ─── Growth Logic ───
 
-        private void HandleDayChanged(int day)
+        public void SimulateDayPass()
         {
             if (cropData == null || currentStage >= 3) return;
             if (!isWatered) return;
@@ -107,33 +97,12 @@ namespace AstroPioneer.Systems
 
         /// <summary>
         /// Returns true if this crop is in a dark zone without UV light coverage.
-        /// Uses a hybrid approach: GridManager cell lighting → Physics overlap → Distance fallback.
+        /// Purely relies on GridManager $O(1)$ lookups instead of Physics2D Raycasts.
         /// </summary>
         private bool IsInDarkness()
         {
-            bool isDim = GridManager.Instance != null && !GridManager.Instance.IsCellLit(gridPosition);
-
-            // Physics overlap check
-            bool inShadowZone = false;
-            bool hasUVLight = false;
-            Collider2D[] hits = Physics2D.OverlapCircleAll(transform.position, 0.5f);
-            foreach (var hit in hits)
-            {
-                if (hit.GetComponent<AstroPioneer.Systems.Environment.ShadowZone>() != null) inShadowZone = true;
-                if (hit.GetComponent<AstroPioneer.Machines.UVLightPillar>() != null) hasUVLight = true;
-            }
-
-            // Distance-based fallback
-            foreach (var shadow in FindObjectsOfType<AstroPioneer.Systems.Environment.ShadowZone>())
-            {
-                if (Vector3.Distance(transform.position, shadow.transform.position) < 2f) inShadowZone = true;
-            }
-            foreach (var uv in FindObjectsOfType<AstroPioneer.Machines.UVLightPillar>())
-            {
-                if (Vector3.Distance(transform.position, uv.transform.position) < 3f) hasUVLight = true;
-            }
-
-            return (isDim || inShadowZone) && !hasUVLight;
+            if (GridManager.Instance == null) return false;
+            return GridManager.Instance.IsShadowCell(gridPosition) && !GridManager.Instance.IsCellLit(gridPosition);
         }
         
         // ─── Player Actions ───
@@ -158,10 +127,10 @@ namespace AstroPioneer.Systems
 
         private void UpdateVisual()
         {
-            if (cropData == null || cropData.growthStageSprites == null) return;
-            if (currentStage >= cropData.growthStageSprites.Length) return;
+            if (cropData == null || cropData.sprites == null) return;
+            if (currentStage >= cropData.sprites.Length) return;
 
-            Sprite stageSprite = cropData.growthStageSprites[currentStage];
+            Sprite stageSprite = cropData.sprites[currentStage];
             if (stageSprite == null) return;
 
             spriteRenderer.sprite = stageSprite;
@@ -172,8 +141,8 @@ namespace AstroPioneer.Systems
         
         // ─── Accessors ───
 
-        public CropData GetCropData() => cropData;
-        public void SetCropData(CropData data) => cropData = data;
+        public CropStructureData GetCropData() => cropData;
+        public void SetCropData(CropStructureData data) => cropData = data;
         public int GetCurrentStage() => currentStage;
         public bool GetIsWatered() => isWatered;
         public Vector2Int GetGridPosition() => gridPosition;
@@ -181,7 +150,6 @@ namespace AstroPioneer.Systems
         public void SetGridPosition(Vector2Int pos)
         {
             gridPosition = pos;
-            _gridPositionSet = true;
         }
 
         public void SetStageData(int stage, bool watered)

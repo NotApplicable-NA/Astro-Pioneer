@@ -1,27 +1,32 @@
 using UnityEngine;
 using System.Collections.Generic;
-using UnityEngine.Tilemaps;
+using AstroPioneer.Managers;
 
 namespace AstroPioneer.Systems.Pathfinding
 {
+    /// <summary>
+    /// PathfindingManager V23 — Chunk-Aware A* Pathfinding.
+    /// 
+    /// ARCHITECTURE:
+    /// - NO persistent grid. Walkability is queried on-demand from GridManager.IsSolidAt().
+    /// - PathNodes are created lazily during each A* search and pooled between calls.
+    /// - Works with infinite world size — follows the chunk system automatically.
+    /// </summary>
     public class PathfindingManager : MonoBehaviour
     {
         public static PathfindingManager Instance { get; private set; }
 
-        [Header("Grid Settings")]
-        [SerializeField] private int width = 50;
-        [SerializeField] private int height = 50;
-        [SerializeField] private float cellSize = 1f;
-        [SerializeField] private Vector3 originPosition = new Vector3(-25, -25, 0);
-        
-        [Header("Collision")]
-        [SerializeField] private LayerMask obstacleLayerMask;
-        
-        private PathfindingGrid grid;
-        
         // Standard A* costs
         private const int MOVE_STRAIGHT_COST = 10;
         private const int MOVE_DIAGONAL_COST = 14;
+
+        // Max search depth to prevent infinite loops on unreachable targets
+        private const int MAX_ITERATIONS = 2000;
+
+        // Reusable node pool — cleared between pathfinding calls
+        private readonly Dictionary<Vector2Int, PathNode> nodePool = new Dictionary<Vector2Int, PathNode>(512);
+        private readonly List<PathNode> openList = new List<PathNode>(256);
+        private readonly HashSet<PathNode> closedSet = new HashSet<PathNode>();
 
         void Awake()
         {
@@ -33,173 +38,183 @@ namespace AstroPioneer.Systems.Pathfinding
             Instance = this;
         }
 
-        void Start()
+        void OnDestroy()
         {
-            grid = new PathfindingGrid(width, height, cellSize, originPosition, obstacleLayerMask);
+            if (Instance == this) Instance = null;
         }
 
-        public List<Vector3> FindPath(Vector3 startWorldPos, Vector3 endWorldPos)
+        // ─── Public API ───
+
+        /// <summary>
+        /// Find a path from start to end. Results written to vectorPathBuffer.
+        /// Uses GridManager.IsSolidAt() for walkability — fully chunk-aware.
+        /// </summary>
+        public void FindPath(Vector3 startWorldPos, Vector3 endWorldPos, List<Vector3> vectorPathBuffer)
         {
-            grid.GetXY(startWorldPos, out int startX, out int startY);
-            grid.GetXY(endWorldPos, out int endX, out int endY);
+            vectorPathBuffer.Clear();
 
-            List<PathNode> pathNodes = FindPath(startX, startY, endX, endY);
-            
-            if (pathNodes == null) return null;
+            Vector2Int startCell = WorldToCell(startWorldPos);
+            Vector2Int endCell = WorldToCell(endWorldPos);
 
-            List<Vector3> vectorPath = new List<Vector3>();
-            foreach (PathNode node in pathNodes)
-            {
-                // Return center of cell
-                vectorPath.Add(grid.GetWorldPosition(node.x, node.y) + new Vector3(cellSize * 0.5f, cellSize * 0.5f));
-            }
-            return vectorPath;
+            // V24.10: We no longer abort if the destination is solid. 
+            // We want the bot to pathfind to the closest ADJACENT walkable cell to interact with the machine.
+
+            FindPathInternal(startCell, endCell, vectorPathBuffer);
         }
 
+        /// <summary>
+        /// Check if a world position is walkable.
+        /// </summary>
         public bool IsWalkable(Vector3 worldPos)
         {
-            grid.GetXY(worldPos, out int x, out int y);
-            PathNode node = grid.GetNode(x, y);
-            return node != null && node.isWalkable;
+            if (GridManager.Instance == null) return true;
+            return !GridManager.Instance.IsSolidAt(WorldToCell(worldPos));
         }
 
-        private List<PathNode> FindPath(int startX, int startY, int endX, int endY)
+        /// <summary>
+        /// V23 Data-Driven: Set walkability — now a no-op since we query GridManager directly.
+        /// Kept for API compatibility. GridManager.IsSolidAt() is the source of truth.
+        /// </summary>
+        public void SetWalkableAtWorldPos(Vector3 worldPos, bool walkable)
         {
-            PathNode startNode = grid.GetNode(startX, startY);
-            PathNode endNode = grid.GetNode(endX, endY);
+            // No-op: GridManager.IsSolidAt() is the live source of truth.
+            // This method exists only so callers don't break.
+        }
 
-            if (startNode == null || endNode == null) return null;
+        // ─── A* Implementation ───
 
-            List<PathNode> openList = new List<PathNode> { startNode };
-            HashSet<PathNode> closedList = new HashSet<PathNode>();
+        private void FindPathInternal(Vector2Int start, Vector2Int end, List<Vector3> results)
+        {
+            // Clear pools from last call
+            nodePool.Clear();
+            openList.Clear();
+            closedSet.Clear();
 
-            for (int x = 0; x < grid.GetWidth(); x++)
-            {
-                for (int y = 0; y < grid.GetHeight(); y++)
-                {
-                    PathNode pathNode = grid.GetNode(x, y);
-                    pathNode.gCost = int.MaxValue;
-                    pathNode.parentNode = null;
-                }
-            }
+            PathNode startNode = GetOrCreateNode(start);
+            PathNode endNode = GetOrCreateNode(end);
 
             startNode.gCost = 0;
-            startNode.hCost = CalculateDistanceCost(startNode, endNode);
+            startNode.hCost = CalculateDistanceCost(start, end);
+            openList.Add(startNode);
 
-            while (openList.Count > 0)
+            int iterations = 0;
+
+            while (openList.Count > 0 && iterations < MAX_ITERATIONS)
             {
-                PathNode currentNode = GetLowestFCostNode(openList);
+                iterations++;
+                PathNode current = GetLowestFCostNode(openList);
 
-                if (currentNode == endNode)
+                if (current.position == end)
                 {
-                    return CalculatePath(endNode);
+                    // Trace path
+                    TracePath(current, results);
+                    return;
                 }
 
-                openList.Remove(currentNode);
-                closedList.Add(currentNode);
+                openList.Remove(current);
+                closedSet.Add(current);
 
-                foreach (PathNode neighbourNode in GetNeighbourList(currentNode))
+                // Expand neighbors (8-directional)
+                for (int dx = -1; dx <= 1; dx++)
                 {
-                    if (closedList.Contains(neighbourNode)) continue;
-                    if (!neighbourNode.isWalkable) 
+                    for (int dy = -1; dy <= 1; dy++)
                     {
-                        closedList.Add(neighbourNode);
-                        continue;
-                    }
+                        if (dx == 0 && dy == 0) continue;
 
-                    int tentativeGCost = currentNode.gCost + CalculateDistanceCost(currentNode, neighbourNode);
-                    if (tentativeGCost < neighbourNode.gCost)
-                    {
-                        neighbourNode.parentNode = currentNode;
-                        neighbourNode.gCost = tentativeGCost;
-                        neighbourNode.hCost = CalculateDistanceCost(neighbourNode, endNode);
+                        Vector2Int neighborPos = new Vector2Int(current.position.x + dx, current.position.y + dy);
 
-                        if (!openList.Contains(neighbourNode))
+                        // Check walkability via GridManager (chunk-aware)
+                        if (GridManager.Instance != null && GridManager.Instance.IsSolidAt(neighborPos))
                         {
-                            openList.Add(neighbourNode);
+                            // V24.10: If the solid neighbor IS our target (e.g. a Machine),
+                            // it means we are standing right next to it! Path is complete.
+                            if (neighborPos == end)
+                            {
+                                // Trace path from CURRENT node (so the bot stops 1 tile away, facing the machine)
+                                TracePath(current, results);
+                                return;
+                            }
+                            continue;
+                        }
+
+                        PathNode neighbor = GetOrCreateNode(neighborPos);
+                        if (closedSet.Contains(neighbor)) continue;
+
+                        int moveCost = (dx != 0 && dy != 0) ? MOVE_DIAGONAL_COST : MOVE_STRAIGHT_COST;
+                        int tentativeG = current.gCost + moveCost;
+
+                        if (tentativeG < neighbor.gCost)
+                        {
+                            neighbor.parentNode = current;
+                            neighbor.gCost = tentativeG;
+                            neighbor.hCost = CalculateDistanceCost(neighborPos, end);
+
+                            if (!openList.Contains(neighbor))
+                                openList.Add(neighbor);
                         }
                     }
                 }
             }
 
             // No path found
-            return null;
         }
 
-        private List<PathNode> GetNeighbourList(PathNode currentNode)
+        private void TracePath(PathNode endNode, List<Vector3> results)
         {
-            List<PathNode> neighbourList = new List<PathNode>();
-
-            if (currentNode.x - 1 >= 0)
+            PathNode current = endNode;
+            while (current != null)
             {
-                // Left
-                neighbourList.Add(grid.GetNode(currentNode.x - 1, currentNode.y));
-                // Left Down
-                if (currentNode.y - 1 >= 0) neighbourList.Add(grid.GetNode(currentNode.x - 1, currentNode.y - 1));
-                // Left Up
-                if (currentNode.y + 1 < grid.GetHeight()) neighbourList.Add(grid.GetNode(currentNode.x - 1, currentNode.y + 1));
+                results.Add(CellToWorld(current.position));
+                current = current.parentNode;
             }
-            if (currentNode.x + 1 < grid.GetWidth())
-            {
-                // Right
-                neighbourList.Add(grid.GetNode(currentNode.x + 1, currentNode.y));
-                // Right Down
-                if (currentNode.y - 1 >= 0) neighbourList.Add(grid.GetNode(currentNode.x + 1, currentNode.y - 1));
-                // Right Up
-                if (currentNode.y + 1 < grid.GetHeight()) neighbourList.Add(grid.GetNode(currentNode.x + 1, currentNode.y + 1));
-            }
-            // Down
-            if (currentNode.y - 1 >= 0) neighbourList.Add(grid.GetNode(currentNode.x, currentNode.y - 1));
-            // Up
-            if (currentNode.y + 1 < grid.GetHeight()) neighbourList.Add(grid.GetNode(currentNode.x, currentNode.y + 1));
-
-            return neighbourList;
+            results.Reverse();
         }
 
-        private List<PathNode> CalculatePath(PathNode endNode)
+        // ─── Node Pool ───
+
+        private PathNode GetOrCreateNode(Vector2Int pos)
         {
-            List<PathNode> path = new List<PathNode>();
-            path.Add(endNode);
-            PathNode currentNode = endNode;
-            while (currentNode.parentNode != null)
-            {
-                path.Add(currentNode.parentNode);
-                currentNode = currentNode.parentNode;
-            }
-            path.Reverse();
-            return path;
+            if (nodePool.TryGetValue(pos, out PathNode existing))
+                return existing;
+
+            PathNode node = new PathNode(pos.x, pos.y);
+            node.position = pos;
+            node.gCost = int.MaxValue;
+            node.hCost = 0;
+            node.parentNode = null;
+            nodePool[pos] = node;
+            return node;
         }
 
-        private int CalculateDistanceCost(PathNode a, PathNode b)
+        // ─── Math ───
+
+        private int CalculateDistanceCost(Vector2Int a, Vector2Int b)
         {
-            int xDistance = Mathf.Abs(a.x - b.x);
-            int yDistance = Mathf.Abs(a.y - b.y);
-            int remaining = Mathf.Abs(xDistance - yDistance);
-            return MOVE_DIAGONAL_COST * Mathf.Min(xDistance, yDistance) + MOVE_STRAIGHT_COST * remaining;
+            int xDist = Mathf.Abs(a.x - b.x);
+            int yDist = Mathf.Abs(a.y - b.y);
+            int remaining = Mathf.Abs(xDist - yDist);
+            return MOVE_DIAGONAL_COST * Mathf.Min(xDist, yDist) + MOVE_STRAIGHT_COST * remaining;
         }
 
-        private PathNode GetLowestFCostNode(List<PathNode> pathNodeList)
+        private PathNode GetLowestFCostNode(List<PathNode> list)
         {
-            PathNode lowestFCostNode = pathNodeList[0];
-            for (int i = 1; i < pathNodeList.Count; i++)
+            PathNode lowest = list[0];
+            for (int i = 1; i < list.Count; i++)
             {
-                if (pathNodeList[i].FCost < lowestFCostNode.FCost)
-                {
-                    lowestFCostNode = pathNodeList[i];
-                }
+                if (list[i].FCost < lowest.FCost)
+                    lowest = list[i];
             }
-            return lowestFCostNode;
+            return lowest;
         }
-        
-        // Debug Gizmos
-        void OnDrawGizmos()
+
+        private Vector2Int WorldToCell(Vector3 worldPos)
         {
-            if (grid != null)
-            {
-                Gizmos.color = Color.white;
-                // Only draw a subset to avoid lag? Or just draw bounds?
-                Gizmos.DrawWireCube(originPosition + new Vector3(width * cellSize * 0.5f, height * cellSize * 0.5f), new Vector3(width * cellSize, height * cellSize));
-            }
+            return new Vector2Int(Mathf.FloorToInt(worldPos.x), Mathf.FloorToInt(worldPos.y));
+        }
+
+        private Vector3 CellToWorld(Vector2Int cell)
+        {
+            return new Vector3(cell.x + 0.5f, cell.y + 0.5f, 0f);
         }
     }
 }

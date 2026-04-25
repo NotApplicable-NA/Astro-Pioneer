@@ -24,20 +24,14 @@ namespace AstroPioneer.Systems.Pathfinding
 
             gridArray = new PathNode[width, height];
 
+            // V23: All nodes start walkable. Actual walkability is set by
+            // ChunkRenderer.SyncPathfindingForChunk() using GridManager data.
+            // This eliminates the race condition where Physics2D scanned before visuals existed.
             for (int x = 0; x < width; x++)
             {
                 for (int y = 0; y < height; y++)
                 {
-                    PathNode node = new PathNode(x, y);
-                    gridArray[x, y] = node;
-                    
-                    // Auto-detect walkability using Physics2D
-                    Vector3 worldPos = GetWorldPosition(x, y) + new Vector3(cellSize * 0.5f, cellSize * 0.5f);
-                    // Check if any collider in obstacle layer overlaps this cell center (radius 0.3 to avoid edge bleed)
-                    if (Physics2D.OverlapCircle(worldPos, cellSize * 0.3f, obstacleLayerMask) != null)
-                    {
-                        node.isWalkable = false;
-                    }
+                    gridArray[x, y] = new PathNode(x, y);
                 }
             }
         }

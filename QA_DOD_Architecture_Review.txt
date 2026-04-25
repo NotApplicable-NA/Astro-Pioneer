@@ -1,0 +1,1986 @@
+================================================================================
+FILE: Assets\Scripts\Managers\BotSimulationManager.cs
+================================================================================
+using UnityEngine;
+using System.Collections.Generic;
+using AstroPioneer.Core;
+using AstroPioneer.Data;
+using AstroPioneer.Managers;
+using AstroPioneer.Systems.Pathfinding;
+
+namespace AstroPioneer.Machines.Automation
+{
+    [System.Serializable]
+    public class BotData
+    {
+        public string id;
+        public int entityTypeID; // V24.9: Points to EntityRegistry
+        public Vector2 currentPos;
+        public ChunkCoord currentChunk; // V24.8: Track current chunk for visual binding
+        public TransportState state = TransportState.Idle;
+        public List<Vector3> path = new List<Vector3>();
+        public int pathIndex = 0;
+        
+        public Vector2 sourcePos;
+        public Vector2 targetPos;
+        public ushort heldItemID = 0;
+        
+        public bool hasTask = false;
+        public string stationID; // To which station it belongs
+    }
+
+    /// <summary>
+    /// BotSimulationManager — The "Bot Logistics Specialist" (V24.8).
+    /// Implements ISimulatedSystem to run on the global heartbeat.
+    /// </summary>
+    public class BotSimulationManager : MonoBehaviour, AstroPioneer.Core.Simulation.ISimulatedSystem
+    {
+        public static BotSimulationManager Instance { get; private set; }
+
+        [Header("Simulation Config")]
+        [SerializeField] private float moveSpeed = 3f;
+
+        private List<BotData> simulatedBots = new List<BotData>();
+
+        void Awake()
+        {
+            if (Instance != null) { Destroy(gameObject); return; }
+            Instance = this;
+            ServiceLocator.Register(this);
+        }
+
+        void Start()
+        {
+            // Register ourselves to the Conductor
+            if (AstroPioneer.Core.Simulation.SimulationMaster.Instance != null)
+            {
+                AstroPioneer.Core.Simulation.SimulationMaster.Instance.RegisterSystem(this);
+            }
+        }
+
+        // ─── ISimulatedSystem Implementation ───
+
+        public int Priority => 100; // Runs after infrastructure (Power/Fluid)
+        
+        void OnApplicationQuit()
+        {
+            AstroPioneer.Core.SaveSystem.SaveBotsBinary(this);
+        }
+
+        public void OnTick()
+        {
+            foreach (var bot in simulatedBots)
+            {
+                if (!bot.hasTask) continue;
+                UpdateBotLogic(bot);
+            }
+        }
+
+        private void UpdateBotLogic(BotData bot)
+        {
+            float tickRate = AstroPioneer.Core.Simulation.SimulationMaster.Instance != null ? 
+                             AstroPioneer.Core.Simulation.SimulationMaster.Instance.TickRate : 0.2f;
+                             
+            switch (bot.state)
+            {
+                case TransportState.Idle:
+                    // If has task but idle, start moving to source
+                    if (bot.hasTask) StartMovingTo(bot, bot.sourcePos, TransportState.MovingToSource);
+                    break;
+
+                case TransportState.MovingToSource:
+                    if (MoveStep(bot)) 
+                        HandleInteraction(bot, true); // Arrived at source
+                    break;
+
+                case TransportState.MovingToTarget:
+                    if (MoveStep(bot))
+                        HandleInteraction(bot, false); // Arrived at target
+                    break;
+            }
+        }
+
+        private bool MoveStep(BotData bot)
+        {
+            if (bot.path == null || bot.path.Count == 0 || bot.pathIndex >= bot.path.Count) 
+            {
+                // If we have no path but are already at the destination, return true
+                return true;
+            }
+
+            float tickRate = AstroPioneer.Core.Simulation.SimulationMaster.Instance != null ? 
+                             AstroPioneer.Core.Simulation.SimulationMaster.Instance.TickRate : 0.2f;
+
+            Vector2 targetWaypoint = (Vector2)bot.path[bot.pathIndex];
+            
+            // V24.10: Dynamic Obstacle Check (Deterministic)
+            Vector2Int waypointCell = new Vector2Int(Mathf.FloorToInt(targetWaypoint.x), Mathf.FloorToInt(targetWaypoint.y));
+            if (GridManager.Instance != null && GridManager.Instance.IsSolidAt(waypointCell))
+            {
+                // If this is the last waypoint (or close to it), bot is adjacent to target — consider arrived
+                if (bot.pathIndex >= bot.path.Count - 1)
+                    return true;
+                    
+                // Otherwise, something got placed mid-path. Recalculate.
+                StartMovingTo(bot, bot.state == TransportState.MovingToSource ? bot.sourcePos : bot.targetPos, bot.state);
+                return false; 
+            }
+
+            float dist = Vector2.Distance(bot.currentPos, targetWaypoint);
+            float step = moveSpeed * tickRate;
+
+            if (dist <= step)
+            {
+                bot.currentPos = targetWaypoint;
+                bot.pathIndex++;
+                if (bot.pathIndex >= bot.path.Count) return true;
+            }
+            else
+            {
+                bot.currentPos = Vector2.MoveTowards(bot.currentPos, targetWaypoint, step);
+            }
+
+            // V24.8: Update current chunk reference
+            bot.currentChunk = ChunkCoord.FromWorldPos(bot.currentPos.x, bot.currentPos.y);
+
+            return false;
+        }
+
+        public List<BotData> GetBotsInChunk(ChunkCoord coord)
+        {
+            return simulatedBots.FindAll(b => b.currentChunk.x == coord.x && b.currentChunk.y == coord.y);
+        }
+
+        private void HandleInteraction(BotData bot, bool isSource)
+        {
+            Vector2Int gridPos = new Vector2Int(Mathf.FloorToInt(isSource ? bot.sourcePos.x : bot.targetPos.x), 
+                                              Mathf.FloorToInt(isSource ? bot.sourcePos.y : bot.targetPos.y));
+
+            if (isSource)
+            {
+                // Logic to take from pump
+                if (TryDataPickup(gridPos, out ushort itemID))
+                {
+                    bot.heldItemID = itemID;
+                    StartMovingTo(bot, bot.targetPos, TransportState.MovingToTarget);
+                }
+                else
+                {
+                    // Source empty? Wait or cancel
+                    bot.state = TransportState.Idle; 
+                }
+            }
+            else
+            {
+                // Logic to drop into storage
+                if (TryDataDropoff(gridPos, bot.heldItemID))
+                {
+                    bot.heldItemID = 0;
+                    bot.hasTask = false;
+                    bot.state = TransportState.Idle;
+                }
+            }
+        }
+
+        private void StartMovingTo(BotData bot, Vector2 target, TransportState nextState)
+        {
+            bot.state = nextState;
+            bot.path.Clear();
+            PathfindingManager.Instance.FindPath((Vector3)bot.currentPos, (Vector3)target, bot.path);
+            bot.pathIndex = 0;
+
+            if (bot.path.Count == 0)
+            {
+                // Check if we are already essentially at the target
+                if (Vector2.Distance(bot.currentPos, target) < 1.1f)
+                {
+                    // Treat as arrived immediately next tick
+                }
+                else
+                {
+                    Debug.LogWarning($"[BotSimulationManager] Bot {bot.id} failed to find path to {target}. Target may be blocked.");
+                }
+            }
+        }
+
+        // ─── Data Layer Interactions (Directly modifying Chunk Data) ───
+
+        private bool TryDataPickup(Vector2Int pos, out ushort itemID)
+        {
+            itemID = 0;
+            if (GridManager.Instance == null || StructureRegistry.Instance == null) return false;
+
+            ushort structID = GridManager.Instance.GetStructureAt(pos);
+            if (structID == AstroPioneer.Core.GameConstants.STRUCTURE_EMPTY) return false;
+
+            StructureData data = StructureRegistry.Instance.Get(structID);
+            if (data != null && data.visualPrefab != null)
+            {
+                var pump = data.visualPrefab.GetComponent<MachineWaterPump>();
+                if (pump != null && pump.WaterItemData != null)
+                {
+                    if (AstroPioneer.Data.ItemRegistry.Instance != null)
+                    {
+                        itemID = AstroPioneer.Data.ItemRegistry.Instance.GetID(pump.WaterItemData);
+                        if (itemID > 0) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        private bool TryDataDropoff(Vector2Int pos, ushort itemID)
+        {
+            if (GridManager.Instance == null) return false;
+            
+            // V24.10: Allocate state if it doesn't exist (e.g. newly placed machine not yet opened by player)
+            byte[] state = GridManager.Instance.GetOrAllocateComplexState(pos);
+            if (state == null) return false;
+
+            ushort slotCount = System.BitConverter.ToUInt16(state, 0);
+            
+            // If completely uninitialized, format it as a 9-slot storage
+            if (slotCount == 0)
+            {
+                slotCount = 9;
+                System.BitConverter.TryWriteBytes(new System.Span<byte>(state, 0, 2), slotCount);
+            }
+
+            int offset = 2;
+            for (int i = 0; i < slotCount; i++)
+            {
+                if (offset + 6 > state.Length) break;
+                
+                ushort slotItemID = System.BitConverter.ToUInt16(state, offset);
+                int qty = System.BitConverter.ToInt32(state, offset + 2);
+
+                if (slotItemID == 0 || (slotItemID == itemID && qty < 64)) // Assuming 64 is max stack
+                {
+                    System.BitConverter.TryWriteBytes(new System.Span<byte>(state, offset, 2), itemID);
+                    System.BitConverter.TryWriteBytes(new System.Span<byte>(state, offset + 2, 4), qty + 1);
+                    GridManager.Instance.MarkChunkDirty(pos);
+                    return true;
+                }
+                offset += 6;
+            }
+
+            return false; 
+        }
+
+        // ─── Public API ───
+
+        public BotData RegisterBot(string id, Vector2 startPos, int entityTypeID)
+        {
+            var data = new BotData { id = id, currentPos = startPos, entityTypeID = entityTypeID };
+            data.currentChunk = AstroPioneer.Core.ChunkCoord.FromWorldPos(startPos.x, startPos.y);
+            simulatedBots.Add(data);
+            return data;
+        }
+
+        public BotData GetBotData(string id)
+        {
+            return simulatedBots.Find(b => b.id == id);
+        }
+
+        public void UnregisterBot(string id)
+        {
+            simulatedBots.RemoveAll(b => b.id == id);
+        }
+
+        public IReadOnlyList<BotData> GetAllBots()
+        {
+            return simulatedBots;
+        }
+
+        // ─── Data Persistence ───
+
+        public void SerializeBots(System.IO.BinaryWriter writer)
+        {
+            writer.Write((ushort)simulatedBots.Count);
+            foreach (var bot in simulatedBots)
+            {
+                writer.Write(bot.id ?? "");
+                writer.Write(bot.entityTypeID);
+                writer.Write(bot.currentPos.x);
+                writer.Write(bot.currentPos.y);
+                writer.Write(bot.sourcePos.x);
+                writer.Write(bot.sourcePos.y);
+                writer.Write(bot.targetPos.x);
+                writer.Write(bot.targetPos.y);
+                writer.Write(bot.heldItemID);
+                writer.Write(bot.hasTask);
+                writer.Write((byte)bot.state);
+                writer.Write(bot.stationID ?? "");
+            }
+        }
+
+        public void DeserializeBots(System.IO.BinaryReader reader)
+        {
+            simulatedBots.Clear();
+            ushort count = reader.ReadUInt16();
+            for (int i = 0; i < count; i++)
+            {
+                var bot = new BotData();
+                bot.id = reader.ReadString();
+                bot.entityTypeID = reader.ReadInt32();
+                bot.currentPos = new Vector2(reader.ReadSingle(), reader.ReadSingle());
+                bot.sourcePos = new Vector2(reader.ReadSingle(), reader.ReadSingle());
+                bot.targetPos = new Vector2(reader.ReadSingle(), reader.ReadSingle());
+                bot.heldItemID = reader.ReadUInt16();
+                bot.hasTask = reader.ReadBoolean();
+                bot.state = (TransportState)reader.ReadByte();
+                bot.stationID = reader.ReadString();
+                
+                bot.currentChunk = AstroPioneer.Core.ChunkCoord.FromWorldPos(bot.currentPos.x, bot.currentPos.y);
+                simulatedBots.Add(bot);
+            }
+        }
+    }
+}
+
+
+
+================================================================================
+FILE: Assets\Scripts\Machines\Automation\BotStation.cs
+================================================================================
+using UnityEngine;
+using System.Collections;
+using System.Collections.Generic;
+using AstroPioneer.Core;
+using AstroPioneer.Data;
+using AstroPioneer.Managers;
+using AstroPioneer.Machines;
+
+namespace AstroPioneer.Machines.Automation
+{
+    /// <summary>
+    /// BotStation V24.9 — Fully Data-Driven.
+    /// 
+    /// ZERO Physics2D usage. All scanning is done through GridManager (data layer).
+    /// Works even when machines/bots are in unloaded chunks.
+    /// </summary>
+    public class BotStation : MonoBehaviour
+    {
+        [Header("Station Config")]
+        [SerializeField] private float scanRadius = 8f;
+        [SerializeField] private float scanInterval = 3f;
+
+        // V24.9: Only IDs and coordinates. No MonoBehaviour references.
+        private readonly List<string> assignedBotIDs = new List<string>();
+        private readonly List<Vector2Int> foundSources = new List<Vector2Int>(16);
+        private readonly List<Vector2Int> foundSinks = new List<Vector2Int>(16);
+
+        void Start()
+        {
+            StartCoroutine(ScanLoop());
+        }
+
+        private IEnumerator ScanLoop()
+        {
+            yield return new WaitForSeconds(Random.Range(0.5f, scanInterval));
+            while (true)
+            {
+                AdoptNearbyBots();
+                ScanAndDispatch();
+                yield return new WaitForSeconds(scanInterval);
+            }
+        }
+
+        // ─── V24.9: Data-Driven Bot Adoption (No Physics) ───
+
+        private void AdoptNearbyBots()
+        {
+            if (BotSimulationManager.Instance == null) return;
+
+            // Query ALL simulated bots from the data layer
+            // and adopt any within our scan radius based on their DATA position
+            var allBots = BotSimulationManager.Instance.GetAllBots();
+            Vector2 stationPos = (Vector2)transform.position;
+
+            for (int i = 0; i < allBots.Count; i++)
+            {
+                var bot = allBots[i];
+                if (assignedBotIDs.Contains(bot.id)) continue;
+
+                // Check distance using DATA coordinates, not Physics
+                if (Vector2.Distance(stationPos, bot.currentPos) <= scanRadius)
+                {
+                    assignedBotIDs.Add(bot.id);
+                    bot.stationID = gameObject.name;
+                    Debug.Log($"[BotStation] Data-Adopted bot: {bot.id}");
+                }
+            }
+        }
+
+        // ─── V24.9: Data-Driven Machine Scan (No Physics) ───
+
+        private void ScanAndDispatch()
+        {
+            if (BotSimulationManager.Instance == null) return;
+
+            // 1. Find an idle bot from our adopted list
+            BotData idleBot = null;
+            for (int i = assignedBotIDs.Count - 1; i >= 0; i--)
+            {
+                var data = BotSimulationManager.Instance.GetBotData(assignedBotIDs[i]);
+                if (data == null) { assignedBotIDs.RemoveAt(i); continue; }
+                if (!data.hasTask) { idleBot = data; break; }
+            }
+
+            if (idleBot == null) return;
+
+            // 2. Scan GridManager data for machines (No Physics!)
+            foundSources.Clear();
+            foundSinks.Clear();
+
+            int radius = Mathf.CeilToInt(scanRadius);
+            Vector2Int center = new Vector2Int(
+                Mathf.FloorToInt(transform.position.x),
+                Mathf.FloorToInt(transform.position.y));
+
+            for (int y = -radius; y <= radius; y++)
+            {
+                for (int x = -radius; x <= radius; x++)
+                {
+                    Vector2Int checkPos = center + new Vector2Int(x, y);
+                    if (Vector2.Distance((Vector2)center, (Vector2)checkPos) > scanRadius) continue;
+
+                    ClassifyMachineAt(checkPos);
+                }
+            }
+
+            // 3. Dispatch task using pure coordinates
+            if (foundSources.Count > 0 && foundSinks.Count > 0)
+            {
+                Vector2Int sourcePos = foundSources[0];
+                Vector2Int sinkPos = foundSinks[0];
+
+                Debug.Log($"[BotStation] Dispatching {idleBot.id} to {sourcePos} -> {sinkPos}");
+
+                idleBot.sourcePos = (Vector2)sourcePos;
+                idleBot.targetPos = (Vector2)sinkPos;
+                idleBot.hasTask = true;
+                idleBot.state = TransportState.Idle;
+            }
+        }
+
+        /// <summary>
+        /// V24.9: Identifies machine type purely from data.
+        /// Reads StructureID from GridManager → looks up StructureData from Registry
+        /// → checks the PREFAB ASSET (always in memory) for component type.
+        /// </summary>
+        private void ClassifyMachineAt(Vector2Int pos)
+        {
+            if (GridManager.Instance == null || StructureRegistry.Instance == null) return;
+
+            ushort structID = GridManager.Instance.GetStructureAt(pos);
+            if (structID == GameConstants.STRUCTURE_EMPTY) return;
+
+            StructureData data = StructureRegistry.Instance.Get(structID);
+            if (data == null || data.category != StructureCategory.Machine) return;
+            if (data.visualPrefab == null) return;
+
+            // Check the PREFAB asset (not a scene instance — always valid)
+            if (data.visualPrefab.GetComponent<MachineWaterPump>() != null)
+                foundSources.Add(pos);
+            else if (data.visualPrefab.GetComponent<MachineStorage>() != null)
+                foundSinks.Add(pos);
+        }
+
+        void OnDrawGizmosSelected()
+        {
+            Gizmos.color = new Color(0.2f, 0.8f, 1f, 0.3f);
+            Gizmos.DrawWireSphere(transform.position, scanRadius);
+        }
+    }
+}
+
+
+
+================================================================================
+FILE: Assets\Scripts\Machines\TransportBot.cs
+================================================================================
+using UnityEngine;
+using System.Collections;
+using AstroPioneer.Data;
+using AstroPioneer.Managers;
+using AstroPioneer.Systems.Pathfinding;
+using AstroPioneer.Core;
+
+namespace AstroPioneer.Machines.Automation
+{
+    public enum TransportState { Idle, MovingToSource, PickingUp, MovingToTarget, DroppingOff }
+
+    /// <summary>
+    /// TransportBot V24.11 — Pure Visual Chaser (Wayang).
+    /// 
+    /// HUKUM ARSITEKTUR:
+    /// - Wayang ini TIDAK PERNAH membuat data baru di BotSimulationManager.
+    /// - Ia hanya MENCARI data yang sudah ada berdasarkan ID.
+    /// - Jika data tidak ditemukan, wayang ini MENGHANCURKAN DIRINYA SENDIRI.
+    /// - Penciptaan data bot HANYA dilakukan melalui PlacementManager (Pintu Depan).
+    /// </summary>
+    [RequireComponent(typeof(BotController))]
+    public class TransportBot : MonoBehaviour
+    {
+        [Header("Identity")]
+        [SerializeField] private string botID;
+        
+        private BotData data;
+        private BotController botController;
+        private Animator animator;
+
+        // Animator Hashes
+        private static readonly int PickupHash = Animator.StringToHash("Pickup");
+        private static readonly int DropoffHash = Animator.StringToHash("Dropoff");
+        private static readonly int IsCarryingHash = Animator.StringToHash("IsCarrying");
+
+        public string BotID => botID;
+        public Vector3 WorldPosition => transform.position;
+        public bool IsAvailable => data != null && !data.hasTask;
+        public BotStation HomeStation { get; private set; }
+
+        void Awake()
+        {
+            botController = GetComponent<BotController>();
+            animator = GetComponent<Animator>();
+        }
+
+        /// <summary>
+        /// Bind this visual to an existing BotData in the simulation brain.
+        /// Called by ChunkRenderer when spawning visuals for bots in loaded chunks.
+        /// This method ONLY looks up data — it NEVER creates new data.
+        /// </summary>
+        public void BindToSimulation(string id)
+        {
+            botID = id;
+            if (BotSimulationManager.Instance != null)
+            {
+                data = BotSimulationManager.Instance.GetBotData(id);
+            }
+
+            if (data == null)
+            {
+                Debug.LogWarning($"[TransportBot] Wayang tanpa jiwa! No BotData found for '{id}'. Destroying visual.");
+                Destroy(gameObject);
+            }
+        }
+
+        void Start()
+        {
+            // Wayang HARUS sudah di-bind sebelum Start().
+            // Jika belum, coba lookup terakhir. Jika gagal = mati.
+            if (data == null && !string.IsNullOrEmpty(botID))
+            {
+                BindToSimulation(botID);
+            }
+            else if (data == null)
+            {
+                Debug.LogWarning("[TransportBot] Wayang tanpa jiwa! No botID assigned. Destroying visual.");
+                Destroy(gameObject);
+            }
+        }
+
+        // ─── Emergency & Rescue System (V24.9) ───
+
+        public void ExecuteEmergencyRescue(Vector3 rescuePos, Vector3 targetPos)
+        {
+            if (data != null)
+            {
+                data.currentPos = targetPos;
+                data.path.Clear();
+                data.hasTask = false;
+                data.state = TransportState.Idle;
+            }
+            transform.position = targetPos;
+            Debug.Log($"[TransportBot] Emergency Rescue executed for {botID}");
+        }
+
+        public void ForceReset()
+        {
+            if (data != null)
+            {
+                data.path.Clear();
+                data.hasTask = false;
+                data.state = TransportState.Idle;
+            }
+            Debug.Log($"[TransportBot] Force Reset executed for {botID}");
+        }
+
+        void Update()
+        {
+            if (data == null) return;
+
+            // 1. Follow the simulation position (smooth visual lerp)
+            transform.position = Vector3.Lerp(transform.position, (Vector3)data.currentPos, Time.deltaTime * 10f);
+
+            // 2. Sync Animations based on Simulation State
+            SyncVisuals();
+        }
+
+        private void SyncVisuals()
+        {
+            if (animator == null) return;
+
+            bool isCarrying = data.heldItemID != 0;
+            animator.SetBool(IsCarryingHash, isCarrying);
+        }
+
+        public void SetHomeStation(BotStation station) => HomeStation = station;
+    }
+}
+
+
+
+================================================================================
+FILE: Assets\Scripts\Systems\PlacementManager.cs
+================================================================================
+using UnityEngine;
+using AstroPioneer.Data;
+using AstroPioneer.Managers;
+
+namespace AstroPioneer.Systems
+{
+    public class PlacementManager : MonoBehaviour
+    {
+        public static PlacementManager Instance { get; private set; }
+
+        private InventoryItem currentPlacementItem;
+        private GameObject ghostVisual;
+        private SpriteRenderer ghostSpriteRenderer;
+        private Camera cachedMainCamera;
+
+        void Awake()
+        {
+            if (Instance != null && Instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            Instance = this;
+            cachedMainCamera = Camera.main;
+        }
+
+        void OnDestroy()
+        {
+            if (Instance == this) Instance = null;
+        }
+
+        public void SetPlacementItem(InventoryItem item)
+        {
+            currentPlacementItem = item;
+            
+            // Cleanup existing ghost
+            if (ghostVisual != null)
+            {
+                Destroy(ghostVisual);
+                ghostVisual = null;
+                ghostSpriteRenderer = null;
+            }
+
+            // Create new ghost if placing a crafted item
+            if (item != null && item.type == ItemType.Crafted)
+            {
+                if (item.placedStructure != null && item.placedStructure.visualPrefab != null)
+                {
+                    ghostVisual = Instantiate(item.placedStructure.visualPrefab);
+                    ghostVisual.name = "Ghost_" + item.placedStructure.visualPrefab.name;
+                    
+                    // Auto-disable colliders and scripts on ghost
+                    var colliders = ghostVisual.GetComponentsInChildren<Collider2D>();
+                    foreach (var c in colliders) c.enabled = false;
+                    
+                    var scripts = ghostVisual.GetComponentsInChildren<MonoBehaviour>();
+                    foreach (var s in scripts) 
+                    {
+                        if (s != null) s.enabled = false;
+                    }
+                    ghostSpriteRenderer = ghostVisual.GetComponentInChildren<SpriteRenderer>();
+                }
+            }
+        }
+
+        public bool IsPlacingModeActive()
+        {
+            return currentPlacementItem != null && currentPlacementItem.type == ItemType.Crafted;
+        }
+
+        /// <summary>
+        /// Resets placement state. Called on scene load to prevent
+        /// ghost placements from a previous save state.
+        /// </summary>
+        public void ClearPlacement()
+        {
+            currentPlacementItem = null;
+            if (ghostVisual != null)
+            {
+                Destroy(ghostVisual);
+                ghostVisual = null;
+                ghostSpriteRenderer = null;
+            }
+        }
+
+        public bool IsPlacementValid(Vector2Int origin, Vector2 dimensions)
+        {
+            int w = Mathf.RoundToInt(dimensions.x == 0 ? 1 : dimensions.x);
+            int h = Mathf.RoundToInt(dimensions.y == 0 ? 1 : dimensions.y);
+            bool isMicro = currentPlacementItem != null && currentPlacementItem.isMicroGridItem;
+
+            for (int x = 0; x < w; x++)
+            {
+                for (int y = 0; y < h; y++)
+                {
+                    Vector2Int pos = origin + new Vector2Int(x, y);
+                    
+                    if (isMicro)
+                    {
+                        if (GridManager.Instance.GetUtilityAt(pos) != AstroPioneer.Core.GameConstants.STRUCTURE_EMPTY) return false;
+                    }
+                    else
+                    {
+                        // MUST be completely empty. OCCUPIED_PART also blocks.
+                        if (GridManager.Instance.GetStructureAt(pos) != AstroPioneer.Core.GameConstants.STRUCTURE_EMPTY) return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        public bool TryPlace(Vector2Int gridPos)
+        {
+            if (!IsPlacingModeActive() || currentPlacementItem.placedStructure == null || currentPlacementItem.placedStructure.visualPrefab == null) return false;
+
+            Vector2 dimensions = currentPlacementItem.placedStructure.dimensions == Vector2.zero ? Vector2.one : currentPlacementItem.placedStructure.dimensions;
+
+            if (!IsPlacementValid(gridPos, dimensions))
+            {
+                return false;
+            }
+            
+            ushort structID = currentPlacementItem.StructureID;
+            bool isMicro = currentPlacementItem.isMicroGridItem;
+            int w = Mathf.RoundToInt(dimensions.x);
+            int h = Mathf.RoundToInt(dimensions.y);
+
+            // ─── V23: Separation of Concerns ───
+            // Path 1: Free-moving Entity (Bot, Vehicle) — uses isEntity flag, NOT ID 0
+            if (currentPlacementItem.isEntity)
+            {
+                Vector3 center = GridManager.Instance.GridToWorldPosition(gridPos);
+                Vector3 offset = new Vector3((dimensions.x - 1) * 0.5f * GridManager.Instance.CellSize, (dimensions.y - 1) * 0.5f * GridManager.Instance.CellSize, 0);
+                Vector3 spawnPos = center + offset;
+                
+                GameObject prefab = currentPlacementItem.placedStructure.visualPrefab;
+                GameObject newObj;
+                if (AstroPioneer.Managers.ObjectPoolManager.Instance != null)
+                {
+                    newObj = AstroPioneer.Managers.ObjectPoolManager.Instance.SpawnFromPool(prefab.name, prefab, spawnPos);
+                    newObj.transform.rotation = Quaternion.identity;
+                }
+                else
+                {
+                    newObj = Instantiate(prefab, spawnPos, Quaternion.identity);
+                }
+                
+                AstroPioneer.Systems.MachineIDTag tag = newObj.GetComponent<AstroPioneer.Systems.MachineIDTag>();
+                if (tag != null) { tag.originGridPos = gridPos; tag.EnsureUniqueID(); }
+                
+                AstroPioneer.Machines.AgriMech mech = newObj.GetComponent<AstroPioneer.Machines.AgriMech>();
+                if (mech != null) mech.Initialize(newObj.transform.position);
+
+                // ─── V24.11: Data-First Bot Creation (Pintu Depan) ───
+                // Use GetComponentInChildren in case the user put the script on a child object
+                var botScript = newObj.GetComponentInChildren<AstroPioneer.Machines.Automation.TransportBot>();
+                if (botScript != null)
+                {
+                    if (AstroPioneer.Machines.Automation.BotSimulationManager.Instance != null)
+                    {
+                        string newBotID = $"Bot_{System.Guid.NewGuid():N}";
+                        int entityTypeID = 1; // Default fallback
+                        if (AstroPioneer.Data.EntityRegistry.Instance != null)
+                        {
+                            entityTypeID = AstroPioneer.Data.EntityRegistry.Instance.GetIDByType(prefab);
+                            if (entityTypeID == 65535) 
+                            {
+                                Debug.LogWarning($"[PlacementManager] Prefab {prefab.name} tidak terdaftar di EntityRegistry! Visual bot tidak akan tersave.");
+                                entityTypeID = 1; // Fallback
+                            }
+                        }
+                        
+                        // Step 1: CREATE data in the Brain (Otak)
+                        AstroPioneer.Machines.Automation.BotSimulationManager.Instance.RegisterBot(newBotID, spawnPos, entityTypeID);
+                        
+                        // Step 2: BIND the visual (Wayang) to the data
+                        botScript.BindToSimulation(newBotID);
+                        
+                        Debug.Log($"[PlacementManager] Data-First Bot Created: {newBotID} at {spawnPos}");
+                    }
+                    else
+                    {
+                        Debug.LogError("[PlacementManager] GAGAL MEMBUAT BOT: BotSimulationManager tidak ditemukan di scene! Pastikan ada GameObject dengan script BotSimulationManager.");
+                    }
+                }
+            }
+            // Path 2: Grid Structure/Utility — requires valid StructureID
+            else
+            {
+                // Guard: ID 0 means EMPTY — something is misconfigured
+                if (structID == AstroPioneer.Core.GameConstants.STRUCTURE_EMPTY)
+                {
+                    Debug.LogError($"[PlacementManager] BLOCKED: '{currentPlacementItem.displayName}' has StructureID=0. " +
+                        "Either register it in StructureRegistry or mark isEntity=true if it's a free entity.");
+                    return false;
+                }
+
+                for (int x = 0; x < w; x++)
+                {
+                    for (int y = 0; y < h; y++)
+                    {
+                        // ONLY the origin (0,0) gets the actual Structure ID. 
+                        // The rest are marked as OCCUPIED_PART to prevent duplicate visuals.
+                        ushort idToPlace = (x == 0 && y == 0) ? structID : AstroPioneer.Core.GameConstants.STRUCTURE_OCCUPIED_PART;
+
+                        if (isMicro)
+                            GridManager.Instance.TryPlaceUtility(gridPos + new Vector2Int(x, y), idToPlace);
+                        else
+                        {
+                            GridManager.Instance.TryPlaceStructure(gridPos + new Vector2Int(x, y), idToPlace);
+                            
+                            // Pre-allocate Complex State for machines with persistence (V23)
+                            if (x == 0 && y == 0 && currentPlacementItem.placedStructure.visualPrefab != null)
+                            {
+                                if (currentPlacementItem.placedStructure.visualPrefab.GetComponent<AstroPioneer.Interfaces.ISavableMachine>() != null)
+                                {
+                                    GridManager.Instance.GetOrAllocateComplexState(gridPos);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        void Update()
+        {
+            if (IsPlacingModeActive() && ghostVisual != null)
+            {
+                if (cachedMainCamera == null) cachedMainCamera = Camera.main;
+                if (cachedMainCamera == null) return;
+
+                Vector3 mouseWorldPos = cachedMainCamera.ScreenToWorldPoint(new Vector3(Input.mousePosition.x, Input.mousePosition.y, -cachedMainCamera.transform.position.z));
+                float cSize = GridManager.Instance.CellSize;
+                
+                Vector2 dimensions = (currentPlacementItem.placedStructure != null && currentPlacementItem.placedStructure.dimensions != Vector2.zero) ? currentPlacementItem.placedStructure.dimensions : Vector2.one;
+                Vector3 mouseOffset = Vector3.zero;
+                
+                Vector2Int gridPos = GridManager.Instance.WorldToGridPosition(mouseWorldPos - mouseOffset);
+                
+                Vector3 corner = GridManager.Instance.GridToWorldPosition(gridPos);
+                Vector3 centerOffsetExtents = new Vector3(dimensions.x * 0.5f * cSize, dimensions.y * 0.5f * cSize, 0);
+                ghostVisual.transform.position = corner + centerOffsetExtents;
+
+                // Validation checks
+                bool isInsideBounds = true; // DOD chunk map is infinite
+                bool isSpaceFree = true;
+                
+                int w = Mathf.RoundToInt(dimensions.x == 0 ? 1 : dimensions.x);
+                int h = Mathf.RoundToInt(dimensions.y == 0 ? 1 : dimensions.y);
+                bool isMicro = currentPlacementItem != null && currentPlacementItem.isMicroGridItem;
+                
+                for (int x = 0; x < w; x++)
+                {
+                    for (int y = 0; y < h; y++)
+                    {
+                        Vector2Int pos = gridPos + new Vector2Int(x, y);
+                        
+                        if (isMicro)
+                        {
+                            if (GridManager.Instance.GetUtilityAt(pos) != AstroPioneer.Core.GameConstants.STRUCTURE_EMPTY) isSpaceFree = false;
+                        }
+                        else
+                        {
+                            if (GridManager.Instance.GetStructureAt(pos) != AstroPioneer.Core.GameConstants.STRUCTURE_EMPTY) isSpaceFree = false;
+                        }
+                    }
+                }
+
+                // Hide completely if out of bounds. Show RED if colliding inside bounds.
+                ghostVisual.SetActive(isInsideBounds);
+                var sr = ghostSpriteRenderer;
+                if (sr != null)
+                {
+                    sr.color = (isInsideBounds && isSpaceFree) ? new Color(0, 1, 0, 0.5f) : new Color(1, 0, 0, 0.5f);
+                }
+            }
+        }
+    }
+}
+
+
+
+================================================================================
+FILE: Assets\Scripts\Managers\SaveGameManager.cs
+================================================================================
+using UnityEngine;
+using System.Collections.Generic;
+using System.Linq;
+using AstroPioneer.Data;
+using AstroPioneer.Machines;
+using AstroPioneer.Managers;
+using AstroPioneer.Systems;
+
+namespace AstroPioneer.Managers
+{
+// Removed legacy SaveData JSON structs. DOD architecture uses raw binary streams.
+
+    /// <summary>
+    /// SaveGameManager — Handles full game state serialization via PlayerPrefs.
+    /// Hotkeys: K = Save, L = Load, Shift+K = Clear save data.
+    /// </summary>
+    public class SaveGameManager : MonoBehaviour
+    {
+        public static SaveGameManager Instance { get; private set; }
+
+        // Registries have been moved to the V20 Data-Driven system (e.g. StructureRegistry).
+        // SaveGameManager no longer manages asset lists directly.
+
+        private const string SAVE_KEY = "AstroPioneer_SaveData";
+
+        // Runtime flag persisted to meta.dat — true means starter kit already given this save slot
+        private bool _starterItemsGiven = false;
+
+        void Awake()
+        {
+            if (Instance != null && Instance != this) { Destroy(this); return; }
+            Instance = this;
+            Core.ServiceLocator.Register(this);
+        }
+
+        void OnDestroy()
+        {
+            if (Instance == this) { Instance = null; Core.ServiceLocator.Unregister<SaveGameManager>(); }
+        }
+
+        void Start() => LoadGame();
+        void OnApplicationQuit() => SaveGame();
+
+        void Update()
+        {
+            // Shift+K: Full dev reset — clears memory, sets flag so next session gives starter items
+            if (Input.GetKey(KeyCode.LeftShift) && Input.GetKeyDown(KeyCode.K))
+            {
+                _starterItemsGiven = false;
+                AstroPioneer.Core.SaveSystem.DeleteAllSaves();
+                PlayerPrefs.DeleteKey(SAVE_KEY);
+                PlayerPrefs.Save();
+                if (InventoryManager.Instance != null)
+                    InventoryManager.Instance.ClearAndResetForNewGame();
+                // Re-save meta immediately with _starterItemsGiven = false.
+                // OnApplicationQuit will also call SaveGame(), but this ensures
+                // the flag is written even if the user quits via Alt+F4 or Editor Stop.
+                int seed = 0;
+                if (AstroPioneer.Core.ServiceLocator.TryGet<AstroPioneer.Core.ChunkManager>(out var cm2))
+                {
+                    seed = cm2.WorldSeed;
+                    cm2.ClearAllData(); // Force wipe memory chunks and visuals
+                }
+                if (AstroPioneer.Core.ServiceLocator.TryGet<AstroPioneer.Core.EntityManager>(out var em))
+                {
+                    em.ClearAllEntities();
+                }
+                
+                AstroPioneer.Core.SaveSystem.SaveMeta(seed, 1, 0, 0.25f, starterItemsGiven: false);
+                Debug.Log("[SaveGameManager] Full reset complete. Starter items will be given on next session.");
+                return;
+            }
+
+            if (Input.GetKeyDown(KeyCode.K)) SaveGame();
+            if (Input.GetKeyDown(KeyCode.L)) LoadGame();
+        }
+
+        // ─────────────────────────── SAVE ───────────────────────────
+
+        public void SaveGame()
+        {
+            // 1. Save Metadata (including starter flag)
+            int seed = AstroPioneer.Core.ServiceLocator.TryGet<AstroPioneer.Core.ChunkManager>(out var cm) ? cm.WorldSeed : 0;
+            int days = AstroPioneer.Managers.TimeManager.Instance != null ? AstroPioneer.Managers.TimeManager.Instance.DaysPassed : 1;
+            int creds = AstroPioneer.Managers.CurrencyManager.Instance != null ? AstroPioneer.Managers.CurrencyManager.Instance.CurrentCredits : 0;
+            float tod = AstroPioneer.Managers.TimeManager.Instance != null ? AstroPioneer.Managers.TimeManager.Instance.CurrentTime : 0.25f;
+
+            AstroPioneer.Core.SaveSystem.SaveMeta(seed, days, creds, tod, _starterItemsGiven);
+
+            // 2. V23: Flush ALL active machine states to ComplexState buffers BEFORE saving chunks.
+            //    This guarantees data written even if the player saves without walking away.
+            FlushAllMachineStates();
+
+            // 3. Save Active Chunks (Grid structures, crops, utilities + ComplexStates)
+            if (cm != null)
+            {
+                foreach (var chunk in cm.ActiveChunks.Values)
+                {
+                    if (chunk.IsDirty)
+                        AstroPioneer.Core.SaveSystem.SaveChunkBinary(chunk, cm.WorldSeed, useAsync: false);
+                }
+            }
+
+            // 3. Save Inventory
+            if (InventoryManager.Instance != null)
+            {
+                AstroPioneer.Core.SaveSystem.SaveInventoryBinary(InventoryManager.Instance.Slots);
+            }
+
+            // 4. Save Entities (AgriMech, etc.)
+            if (AstroPioneer.Core.ServiceLocator.TryGet<AstroPioneer.Core.EntityManager>(out var em) && AstroPioneer.Data.EntityRegistry.Instance != null)
+            {
+                AstroPioneer.Core.SaveSystem.SaveEntities(em.GetAllEntities(), AstroPioneer.Data.EntityRegistry.Instance);
+            }
+
+            // 5. Save Bots (Simulation Brain Data)
+            if (AstroPioneer.Machines.Automation.BotSimulationManager.Instance != null)
+            {
+                AstroPioneer.Core.SaveSystem.SaveBotsBinary(AstroPioneer.Machines.Automation.BotSimulationManager.Instance);
+            }
+
+            Debug.Log("[SaveGameManager] Binary Game State Saved Successfully!");
+        }
+
+        public void LoadGame()
+        {
+            if (AstroPioneer.Core.SaveSystem.TryLoadMeta(out int seed, out int days, out int creds, out float tod, out bool starterGiven))
+            {
+                _starterItemsGiven = starterGiven;
+                
+                if (AstroPioneer.Managers.TimeManager.Instance != null)
+                {
+                    AstroPioneer.Managers.TimeManager.Instance.LoadTime(days, tod);
+                }
+                
+                if (AstroPioneer.Managers.CurrencyManager.Instance != null)
+                {
+                    AstroPioneer.Managers.CurrencyManager.Instance.LoadCredits(creds);
+                }
+                
+                Debug.Log($"[SaveGameManager] Loaded Meta: Seed={seed}, Day={days}, Credits={creds}, Time={tod}, StarterGiven={starterGiven}");
+            }
+            else
+            {
+                // No meta file = brand new game
+                _starterItemsGiven = false;
+                Debug.LogWarning("[SaveGameManager] No Save Meta found. Starting new game.");
+            }
+
+            // Give starter items if this is a new/reset game session
+            if (!_starterItemsGiven && InventoryManager.Instance != null)
+            {
+                InventoryManager.Instance.GiveStarterItems();
+                _starterItemsGiven = true;
+            }
+            else if (_starterItemsGiven && InventoryManager.Instance != null)
+            {
+                // Load existing inventory
+                AstroPioneer.Core.SaveSystem.TryLoadInventoryBinary(InventoryManager.Instance.Slots);
+                // Trigger UI update
+                InventoryManager.Instance.SetSlot(0, InventoryManager.Instance.Slots[0].item, InventoryManager.Instance.Slots[0].quantity); // Hack to trigger OnInventoryUpdated
+            }
+
+            // Chunks auto-load via ChunkManager as player moves.
+
+            // Load Entities
+            if (AstroPioneer.Data.EntityRegistry.Instance != null && AstroPioneer.Managers.ObjectPoolManager.Instance != null)
+            {
+                AstroPioneer.Core.SaveSystem.TryLoadEntities(AstroPioneer.Data.EntityRegistry.Instance, AstroPioneer.Managers.ObjectPoolManager.Instance);
+            }
+
+            // Load Bots (Simulation Brain Data)
+            if (AstroPioneer.Machines.Automation.BotSimulationManager.Instance != null)
+            {
+                AstroPioneer.Core.SaveSystem.TryLoadBotsBinary(AstroPioneer.Machines.Automation.BotSimulationManager.Instance);
+            }
+        }
+
+        // ─── V23: Machine State Flush ───
+
+        /// <summary>
+        /// Flush ALL active machine states (storage inventories, pump levels, etc.)
+        /// from their GameObjects into Chunk.ComplexStates byte[] buffers.
+        /// Called BEFORE saving chunks to disk.
+        /// 
+        /// This is the "Master Save" — it guarantees no data is lost
+        /// regardless of whether chunks were unloaded or not.
+        /// </summary>
+        private void FlushAllMachineStates()
+        {
+            // Find all active ISavableMachine components in the scene
+            var machines = FindObjectsOfType<MonoBehaviour>();
+            int flushed = 0;
+
+            foreach (var mb in machines)
+            {
+                if (mb is AstroPioneer.Interfaces.ISavableMachine savable)
+                {
+                    // Get grid position from MachineIDTag (all grid machines should have this)
+                    var tag = mb.GetComponent<AstroPioneer.Systems.MachineIDTag>();
+                    Vector2Int pos;
+                    if (tag != null)
+                    {
+                        pos = tag.originGridPos;
+                    }
+                    else
+                    {
+                        pos = new Vector2Int(
+                            Mathf.FloorToInt(mb.transform.position.x),
+                            Mathf.FloorToInt(mb.transform.position.y));
+                    }
+
+                    byte[] buffer = GridManager.Instance?.GetOrAllocateComplexState(pos);
+                    if (buffer != null)
+                    {
+                        savable.SaveState(new System.Span<byte>(buffer));
+                        flushed++;
+                    }
+                }
+            }
+
+            if (flushed > 0)
+                Debug.Log($"[SaveGameManager] Flushed {flushed} machine states to ComplexState buffers.");
+        }
+    }
+}
+
+
+
+================================================================================
+FILE: Assets\Scripts\Core\SaveSystem.cs
+================================================================================
+using System.IO;
+using UnityEngine;
+using System.Threading.Tasks;
+using System.Buffers;
+using System.Collections.Concurrent;
+
+namespace AstroPioneer.Core
+{
+    /// <summary>
+    /// SaveSystem — Binary serialization for chunk data and world metadata.
+    /// Memory Hardened Version (V17.5): Using ArrayPool for snapshots and async error queue.
+    /// </summary>
+    public static class SaveSystem
+    {
+        private static string SaveRoot;
+        private static string ChunkDir;
+        private static string MetaPath;
+        private static string EntitiesPath;
+        private static string InventoryPath;
+
+        // Async Error Reporting
+        private static readonly ConcurrentQueue<string> saveErrors = new ConcurrentQueue<string>();
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        private static void InitializePaths()
+        {
+            SaveRoot = Path.Combine(Application.persistentDataPath, GameConstants.SAVE_DIR);
+            ChunkDir = Path.Combine(SaveRoot, GameConstants.SAVE_CHUNK_DIR);
+            MetaPath = Path.Combine(SaveRoot, GameConstants.SAVE_META_FILE);
+            EntitiesPath = Path.Combine(SaveRoot, GameConstants.SAVE_ENTITY_FILE);
+            InventoryPath = Path.Combine(SaveRoot, "inventory.dat");
+        }
+
+        // ─── Error Reporting API ───
+
+        /// <summary>
+        /// Attempts to retrieve the next pending save error.
+        /// Call this on the Main Thread (e.g., from UIManager) to show pop-up warnings.
+        /// </summary>
+        public static bool TryGetNextSaveError(out string errorMessage)
+        {
+            return saveErrors.TryDequeue(out errorMessage);
+        }
+
+        // ─── Meta & Entities (Binary) ───
+
+        public static void SaveMeta(int worldSeed, int daysPassed, int credits, float timeOfDay, bool starterItemsGiven)
+        {
+            Directory.CreateDirectory(SaveRoot);
+            try
+            {
+                using (var fs = new FileStream(MetaPath, FileMode.Create))
+                using (var bw = new BinaryWriter(fs))
+                {
+                    bw.Write(worldSeed);
+                    bw.Write(daysPassed);
+                    bw.Write(credits);
+                    bw.Write(timeOfDay);
+                    bw.Write(starterItemsGiven); // Appended last for backward compatibility
+                }
+            }
+            catch (System.Exception e)
+            {
+                saveErrors.Enqueue($"Meta Save Failed: {e.Message}");
+            }
+        }
+
+        public static bool TryLoadMeta(out int worldSeed, out int daysPassed, out int credits, out float timeOfDay, out bool starterItemsGiven)
+        {
+            worldSeed = 0; daysPassed = 1; credits = 0; timeOfDay = 0.25f;
+            starterItemsGiven = false;
+            if (!File.Exists(MetaPath)) return false;
+
+            using (var fs = new FileStream(MetaPath, FileMode.Open))
+            using (var br = new BinaryReader(fs))
+            {
+                worldSeed = br.ReadInt32();
+                daysPassed = br.ReadInt32();
+                credits = br.ReadInt32();
+                timeOfDay = br.ReadSingle();
+                // Backward compatibility: older saves without this field default to true
+                // (assume starter was given so returning players don't get double items)
+                starterItemsGiven = (fs.Length > fs.Position) ? br.ReadBoolean() : true;
+            }
+            return true;
+        }
+
+        // ─── Inventory (Binary) ───
+
+        public static void SaveInventoryBinary(System.Collections.Generic.List<AstroPioneer.Data.InventorySlot> slots)
+        {
+            Directory.CreateDirectory(SaveRoot);
+            try
+            {
+                using (var fs = new FileStream(InventoryPath, FileMode.Create))
+                using (var bw = new BinaryWriter(fs))
+                {
+                    bw.Write((ushort)slots.Count);
+                    for (int i = 0; i < slots.Count; i++)
+                    {
+                        var slot = slots[i];
+                        if (slot.IsEmpty || slot.item == null || AstroPioneer.Data.ItemRegistry.Instance == null)
+                        {
+                            bw.Write((ushort)0); // Item ID 0 = Empty
+                            bw.Write((int)0);    // Quantity
+                        }
+                        else
+                        {
+                            ushort itemID = AstroPioneer.Data.ItemRegistry.Instance.GetID(slot.item);
+                            bw.Write(itemID);
+                            bw.Write(slot.quantity);
+                        }
+                    }
+                }
+            }
+            catch (System.Exception e)
+            {
+                saveErrors.Enqueue($"Inventory Save Failed: {e.Message}");
+            }
+        }
+
+        public static bool TryLoadInventoryBinary(System.Collections.Generic.List<AstroPioneer.Data.InventorySlot> slots)
+        {
+            if (!File.Exists(InventoryPath)) return false;
+
+            try
+            {
+                using (var fs = new FileStream(InventoryPath, FileMode.Open))
+                using (var br = new BinaryReader(fs))
+                {
+                    ushort count = br.ReadUInt16();
+                    int maxIter = Mathf.Min(count, slots.Count);
+                    for (int i = 0; i < maxIter; i++)
+                    {
+                        ushort itemID = br.ReadUInt16();
+                        int quantity = br.ReadInt32();
+
+                        if (itemID == 0 || AstroPioneer.Data.ItemRegistry.Instance == null)
+                        {
+                            slots[i].Clear();
+                        }
+                        else
+                        {
+                            var item = AstroPioneer.Data.ItemRegistry.Instance.Get(itemID);
+                            if (item != null)
+                            {
+                                slots[i].item = item;
+                                slots[i].quantity = quantity;
+                            }
+                            else
+                            {
+                                slots[i].Clear(); // Invalid item ID
+                            }
+                        }
+                    }
+                    // Clear remaining slots if save had fewer slots
+                    for (int i = maxIter; i < slots.Count; i++)
+                    {
+                        slots[i].Clear();
+                    }
+                }
+                return true;
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[SaveSystem] Inventory Load Failed: {e.Message}");
+                return false;
+            }
+        }
+
+        // ─── Entities (Binary) ───
+
+        public static void SaveEntities(System.Collections.Generic.IReadOnlyList<AstroPioneer.Interfaces.IEntity> entities, AstroPioneer.Data.EntityRegistry registry)
+        {
+            Directory.CreateDirectory(SaveRoot);
+            try
+            {
+                using (var fs = new FileStream(EntitiesPath, FileMode.Create))
+                using (var bw = new BinaryWriter(fs))
+                {
+                    bw.Write((ushort)entities.Count);
+                    foreach (var entity in entities)
+                    {
+                        ushort typeID = (ushort)entity.EntityTypeID;
+                        bw.Write(typeID);
+
+                        // We need to write the length of the state data so we can skip it if the prefab is missing during load
+                        long lengthPos = bw.BaseStream.Position;
+                        bw.Write((ushort)0); // Placeholder for length
+                        
+                        long dataStart = bw.BaseStream.Position;
+                        entity.SerializeState(bw); // Zero allocation write
+                        long dataEnd = bw.BaseStream.Position;
+
+                        ushort stateLength = (ushort)(dataEnd - dataStart);
+
+                        // Seek back and write the actual length
+                        bw.BaseStream.Position = lengthPos;
+                        bw.Write(stateLength);
+                        bw.BaseStream.Position = dataEnd;
+                    }
+                }
+            }
+            catch (System.Exception e)
+            {
+                saveErrors.Enqueue($"Entity Save Failed: {e.Message}");
+            }
+        }
+
+        public static bool TryLoadEntities(AstroPioneer.Data.EntityRegistry registry, AstroPioneer.Managers.ObjectPoolManager pool)
+        {
+            if (!File.Exists(EntitiesPath)) return false;
+
+            try
+            {
+                using (var fs = new FileStream(EntitiesPath, FileMode.Open))
+                using (var br = new BinaryReader(fs))
+                {
+                    ushort count = br.ReadUInt16();
+                    for (int i = 0; i < count; i++)
+                    {
+                        ushort typeID = br.ReadUInt16();
+                        ushort stateLength = br.ReadUInt16();
+
+                        GameObject prefab = registry.GetPrefab(typeID);
+                        if (prefab == null)
+                        {
+                            // Unknown entity type or removed from game, skip its data
+                            br.BaseStream.Position += stateLength;
+                            continue;
+                        }
+
+                        // Use ObjectPoolManager to avoid Instantiate GC spikes
+                        GameObject obj = pool.SpawnFromPool(prefab.name, prefab, Vector3.zero);
+                        var entity = obj.GetComponent<AstroPioneer.Interfaces.IEntity>();
+                        if (entity != null)
+                        {
+                            long dataStart = br.BaseStream.Position;
+                            entity.DeserializeState(br);
+                            
+                            // Ensure we consume exactly stateLength bytes, even if DeserializeState read fewer
+                            long readBytes = br.BaseStream.Position - dataStart;
+                            if (readBytes < stateLength)
+                            {
+                                br.BaseStream.Position += (stateLength - readBytes);
+                            }
+                        }
+                        else
+                        {
+                            br.BaseStream.Position += stateLength;
+                        }
+                    }
+                }
+                return true;
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[SaveSystem] Entity Load Failed: {e.Message}");
+                return false;
+            }
+        }
+
+        // ─── Bot Simulation Save (Binary) ───
+        
+        private static string BotsPath => Path.Combine(SaveRoot, "bots.dat");
+
+        public static void SaveBotsBinary(AstroPioneer.Machines.Automation.BotSimulationManager manager)
+        {
+            Directory.CreateDirectory(SaveRoot);
+            try
+            {
+                using (var fs = new FileStream(BotsPath, FileMode.Create))
+                using (var bw = new BinaryWriter(fs))
+                {
+                    manager.SerializeBots(bw);
+                }
+            }
+            catch (System.Exception e)
+            {
+                saveErrors.Enqueue($"Bot Save Failed: {e.Message}");
+            }
+        }
+
+        public static bool TryLoadBotsBinary(AstroPioneer.Machines.Automation.BotSimulationManager manager)
+        {
+            if (!File.Exists(BotsPath)) return false;
+
+            try
+            {
+                using (var fs = new FileStream(BotsPath, FileMode.Open))
+                using (var br = new BinaryReader(fs))
+                {
+                    manager.DeserializeBots(br);
+                }
+                return true;
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[SaveSystem] Bot Load Failed: {e.Message}");
+                return false;
+            }
+        }
+
+        // ─── Chunk Save (Binary) ───
+
+        /// <summary>
+        /// Save a single chunk to disk using BinaryWriter.
+        /// Atomic Snapshot: Uses ArrayPool for Zero-GC and offloads I/O to Task.Run.
+        /// </summary>
+        public static void SaveChunkBinary(Chunk chunk, int worldSeed, bool useAsync = true)
+        {
+            Directory.CreateDirectory(ChunkDir);
+            string path = Path.Combine(ChunkDir, chunk.Coord.ToFileName());
+            chunk.IsDirty = false;
+
+            int totalCells = GameConstants.CHUNK_SIZE * GameConstants.CHUNK_SIZE;
+
+            // Use ArrayPool to eliminate GC heap churn
+            var poolUshort = ArrayPool<ushort>.Shared;
+            var poolByte = ArrayPool<byte>.Shared;
+            var poolBool = ArrayPool<bool>.Shared;
+
+            ushort[] floorSnap = poolUshort.Rent(totalCells);
+            ushort[] utilSnap = poolUshort.Rent(totalCells);
+            ushort[] structSnap = poolUshort.Rent(totalCells);
+            byte[] metaSnap = poolByte.Rent(totalCells);
+            bool[] shadowSnap = poolBool.Rent(totalCells);
+            bool[] litSnap = poolBool.Rent(totalCells);
+            bool[] exploresSnap = poolBool.Rent(totalCells);
+
+            System.Array.Copy(chunk.FloorLayer.GetRawArray(), floorSnap, totalCells);
+            System.Array.Copy(chunk.UtilityLayer.GetRawArray(), utilSnap, totalCells);
+            System.Array.Copy(chunk.StructureLayer.GetRawArray(), structSnap, totalCells);
+            System.Array.Copy(chunk.MetadataLayer.GetRawArray(), metaSnap, totalCells);
+            System.Array.Copy(chunk.ShadowLayer.GetRawArray(), shadowSnap, totalCells);
+            System.Array.Copy(chunk.LitLayer.GetRawArray(), litSnap, totalCells);
+            System.Array.Copy(chunk.ExploredLayer.GetRawArray(), exploresSnap, totalCells);
+
+            // Clone ComplexStates (Pre-cloned for isolation)
+            var complexStatesSnap = new System.Collections.Generic.Dictionary<Vector2Int, byte[]>();
+            foreach (var kvp in chunk.ComplexStates)
+            {
+                byte[] cloned = new byte[kvp.Value.Length];
+                System.Array.Copy(kvp.Value, cloned, kvp.Value.Length);
+                complexStatesSnap[kvp.Key] = cloned;
+            }
+
+            int cx = chunk.Coord.x;
+            int cy = chunk.Coord.y;
+            bool isGen = chunk.IsGenerated;
+
+            System.Action saveAction = () =>
+            {
+                try
+                {
+                    using (var fs = new FileStream(path, FileMode.Create))
+                    using (var bw = new BinaryWriter(fs))
+                    {
+                        bw.Write(worldSeed);
+                        bw.Write(cx);
+                        bw.Write(cy);
+                        bw.Write(isGen);
+
+                        for (int i = 0; i < totalCells; i++) bw.Write(floorSnap[i]);
+                        for (int i = 0; i < totalCells; i++) bw.Write(utilSnap[i]);
+                        for (int i = 0; i < totalCells; i++) bw.Write(structSnap[i]);
+                        bw.Write(metaSnap, 0, totalCells);
+
+                        WriteBoolArraySnapshot(bw, shadowSnap, totalCells);
+                        WriteBoolArraySnapshot(bw, litSnap, totalCells);
+                        WriteBoolArraySnapshot(bw, exploresSnap, totalCells);
+
+                        bw.Write(complexStatesSnap.Count);
+                        foreach (var kvp in complexStatesSnap)
+                        {
+                            bw.Write((short)kvp.Key.x);
+                            bw.Write((short)kvp.Key.y);
+                            
+                            // AAA Hotfix V18.1: ArrayPool Safety
+                            // Renting from ArrayPool often returns a buffer LARGER than requested.
+                            // We MUST write exactly the buffer size, NOT kvp.Value.Length,
+                            // to avoid writing 'dirty' junk memory from previous usage.
+                            int fixedSize = GameConstants.MACHINE_STATE_BUFFER_SIZE;
+                            bw.Write(fixedSize);
+                            bw.Write(kvp.Value, 0, fixedSize);
+                        }
+
+                        // V26: Append LastSimulatedDay at the end
+                        bw.Write(chunk.LastSimulatedDay);
+                    }
+                }
+                catch (System.Exception e)
+                {
+                    string msg = $"Save Failed: Chunk {cx},{cy}. {e.Message}";
+                    Debug.LogError($"[SaveSystem] {msg}");
+                    saveErrors.Enqueue(msg);
+                }
+                finally
+                {
+                    // MUST return buffers to the shared pool
+                    poolUshort.Return(floorSnap);
+                    poolUshort.Return(utilSnap);
+                    poolUshort.Return(structSnap);
+                    poolByte.Return(metaSnap);
+                    poolBool.Return(shadowSnap);
+                    poolBool.Return(litSnap);
+                    poolBool.Return(exploresSnap);
+                }
+            }; // End of saveAction
+
+            // 2. Execute Action (Async for gameplay, Sync for quitting)
+            if (useAsync)
+            {
+                Task.Run(saveAction);
+            }
+            else
+            {
+                saveAction();
+            }
+        }
+
+        /// <summary>
+        /// Load a chunk from disk. Returns null if file doesn't exist.
+        /// </summary>
+        public static Chunk LoadChunkBinary(ChunkCoord coord, int expectedSeed)
+        {
+            string path = Path.Combine(ChunkDir, coord.ToFileName());
+            if (!File.Exists(path)) return null;
+
+            using (var fs = new FileStream(path, FileMode.Open))
+            using (var br = new BinaryReader(fs))
+            {
+                // Header
+                int fileSeed = br.ReadInt32();
+                int cx = br.ReadInt32();
+                int cy = br.ReadInt32();
+                bool isGenerated = br.ReadBoolean();
+
+                // Seed mismatch = world was regenerated, discard old chunk
+                if (fileSeed != expectedSeed) return null;
+
+                var chunk = new Chunk(new ChunkCoord(cx, cy));
+                chunk.IsGenerated = isGenerated;
+
+                int totalCells = GameConstants.CHUNK_SIZE * GameConstants.CHUNK_SIZE;
+
+                // Grid layers
+                ReadUshortArray(br, chunk.FloorLayer.GetRawArray(), totalCells);
+                ReadUshortArray(br, chunk.UtilityLayer.GetRawArray(), totalCells);
+                ReadUshortArray(br, chunk.StructureLayer.GetRawArray(), totalCells);
+                ReadByteArray(br, chunk.MetadataLayer.GetRawArray(), totalCells);
+
+                // Bool layers
+                ReadBoolArray(br, chunk.ShadowLayer, totalCells);
+                ReadBoolArray(br, chunk.LitLayer, totalCells);
+                ReadBoolArray(br, chunk.ExploredLayer, totalCells);
+
+                // Complex states
+                int stateCount = br.ReadInt32();
+                for (int i = 0; i < stateCount; i++)
+                {
+                    int sx = br.ReadInt16();
+                    int sy = br.ReadInt16();
+                    int bufLen = br.ReadInt32();
+                    
+                    // Zero GC: Rent from pool to match ReleaseComplexStates logic
+                    byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(GameConstants.MACHINE_STATE_BUFFER_SIZE);
+                    // Read exactly bufLen into the rented buffer
+                    br.Read(buffer, 0, Mathf.Min(bufLen, GameConstants.MACHINE_STATE_BUFFER_SIZE));
+                    
+                    chunk.ComplexStates[new Vector2Int(sx, sy)] = buffer;
+                }
+
+                // V26: Safe read for LastSimulatedDay (Backward Compatibility)
+                if (br.BaseStream.Position < br.BaseStream.Length)
+                {
+                    chunk.LastSimulatedDay = br.ReadInt32();
+                }
+                else
+                {
+                    // For old saves, assume day 1 or current day.
+                    chunk.LastSimulatedDay = AstroPioneer.Managers.TimeManager.Instance != null ? AstroPioneer.Managers.TimeManager.Instance.DaysPassed : 1;
+                }
+
+                chunk.IsDirty = false;
+                return chunk;
+            }
+        }
+
+        /// <summary>
+        /// Check if a chunk file exists on disk without reading it.
+        /// </summary>
+        public static bool HasChunkFile(ChunkCoord coord)
+        {
+            return File.Exists(Path.Combine(ChunkDir, coord.ToFileName()));
+        }
+
+        /// <summary>
+        /// Check if a save game exists (meta.dat is present).
+        /// Use this to determine new game vs returning player — no PlayerPrefs needed.
+        /// </summary>
+        public static bool HasMetaFile()
+        {
+            return File.Exists(MetaPath);
+        }
+
+        /// <summary>
+        /// Delete all save data (new game).
+        /// </summary>
+        public static void DeleteAllSaves()
+        {
+            if (Directory.Exists(SaveRoot))
+                Directory.Delete(SaveRoot, true);
+        }
+
+        // ─── Binary Write Helpers (Zero Allocation) ───
+
+        private static void WriteUshortArray(BinaryWriter bw, ushort[] data, int count)
+        {
+            for (int i = 0; i < count; i++)
+                bw.Write(data[i]);
+        }
+
+        private static void WriteByteArray(BinaryWriter bw, byte[] data, int count)
+        {
+            bw.Write(data, 0, count);
+        }
+
+        private static void WriteBoolArray(BinaryWriter bw, GridLayer<bool> layer, int totalCells)
+        {
+            WriteBoolArraySnapshot(bw, layer.GetRawArray(), totalCells);
+        }
+
+        private static void WriteBoolArraySnapshot(BinaryWriter bw, bool[] raw, int totalCells)
+        {
+            // Pack 8 bools per byte (bit packing)
+            int byteCount = (totalCells + 7) / 8;
+            for (int byteIdx = 0; byteIdx < byteCount; byteIdx++)
+            {
+                byte packed = 0;
+                for (int bit = 0; bit < 8; bit++)
+                {
+                    int idx = byteIdx * 8 + bit;
+                    if (idx < totalCells && raw[idx])
+                        packed |= (byte)(1 << bit);
+                }
+                bw.Write(packed);
+            }
+        }
+
+        // ─── Binary Read Helpers ───
+
+        private static void ReadUshortArray(BinaryReader br, ushort[] target, int count)
+        {
+            for (int i = 0; i < count; i++)
+                target[i] = br.ReadUInt16();
+        }
+
+        private static void ReadByteArray(BinaryReader br, byte[] target, int count)
+        {
+            br.Read(target, 0, count);
+        }
+
+        private static void ReadBoolArray(BinaryReader br, GridLayer<bool> layer, int totalCells)
+        {
+            int byteCount = (totalCells + 7) / 8;
+            var raw = layer.GetRawArray();
+            for (int byteIdx = 0; byteIdx < byteCount; byteIdx++)
+            {
+                byte packed = br.ReadByte();
+                for (int bit = 0; bit < 8; bit++)
+                {
+                    int idx = byteIdx * 8 + bit;
+                    if (idx < totalCells)
+                        raw[idx] = (packed & (1 << bit)) != 0;
+                }
+            }
+        }
+    }
+}
+
+
+
+================================================================================
+FILE: Assets\Scripts\Core\ChunkRenderer.cs
+================================================================================
+using UnityEngine;
+using System.Collections.Generic;
+using AstroPioneer.Data;
+using AstroPioneer.Managers;
+using AstroPioneer.Machines.Automation;
+
+namespace AstroPioneer.Core
+{
+    /// <summary>
+    /// ChunkRenderer — Bridges DATA to VISUAL.
+    /// V24.9: Support for separate EntityRegistry for "Reincarnation".
+    /// </summary>
+    public class ChunkRenderer : MonoBehaviour
+    {
+        [Header("References")]
+        [SerializeField] private StructureRegistry structureRegistry;
+        [SerializeField] private EntityRegistry entityRegistry;
+
+        private readonly Dictionary<ChunkCoord, List<SpawnedVisual>> visualMap
+            = new Dictionary<ChunkCoord, List<SpawnedVisual>>();
+        private readonly Stack<List<SpawnedVisual>> visualListPool = new Stack<List<SpawnedVisual>>();
+
+        void Awake()
+        {
+            ServiceLocator.Register(this);
+        }
+
+        void OnDestroy()
+        {
+            ServiceLocator.Unregister<ChunkRenderer>();
+        }
+
+        public void OnChunkLoaded(Chunk chunk)
+        {
+            if (chunk == null) return;
+
+            var visuals = visualListPool.Count > 0 ? visualListPool.Pop() : new List<SpawnedVisual>(128);
+            visuals.Clear();
+            int size = GameConstants.CHUNK_SIZE;
+
+            // 1. Spawn Structures
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    SpawnLayerVisual(chunk, chunk.FloorLayer, x, y, visuals);
+                    SpawnLayerVisual(chunk, chunk.UtilityLayer, x, y, visuals);
+                    SpawnLayerVisual(chunk, chunk.StructureLayer, x, y, visuals);
+                }
+            }
+
+            // 2. Spawn Bots (V24.9 Data-Driven)
+            if (BotSimulationManager.Instance != null)
+            {
+                var bots = BotSimulationManager.Instance.GetBotsInChunk(chunk.Coord);
+                foreach (var b in bots) SpawnBotVisual(b, visuals);
+            }
+
+            visualMap[chunk.Coord] = visuals;
+        }
+
+        public void OnChunkUnloaded(ChunkCoord coord)
+        {
+            if (!visualMap.TryGetValue(coord, out var visuals)) return;
+
+            if (ServiceLocator.TryGet<ObjectPoolManager>(out var pool))
+            {
+                foreach (var v in visuals)
+                {
+                    if (v.go != null) pool.ReturnToPool(v.structureID, v.go);
+                }
+            }
+
+            visuals.Clear();
+            visualMap.Remove(coord);
+            visualListPool.Push(visuals);
+        }
+
+        private void SpawnBotVisual(BotData data, List<SpawnedVisual> visuals)
+        {
+            if (entityRegistry == null) return;
+
+            // V24.9: Use the restored original Registry API
+            GameObject prefab = entityRegistry.GetPrefab(data.entityTypeID);
+            if (prefab == null) return;
+
+            Vector3 worldPos = new Vector3(data.currentPos.x, data.currentPos.y, -0.2f);
+            ushort poolID = (ushort)(data.entityTypeID + 10000);
+
+            if (ServiceLocator.TryGet<ObjectPoolManager>(out var pool))
+            {
+                GameObject botGO = pool.SpawnFromPool(poolID, prefab, worldPos);
+                if (botGO != null)
+                {
+                    var botScript = botGO.GetComponent<AstroPioneer.Machines.Automation.TransportBot>();
+                    if (botScript != null) botScript.BindToSimulation(data.id);
+
+                    visuals.Add(new SpawnedVisual { localX = -1, localY = -1, structureID = (ushort)poolID, go = botGO });
+                }
+            }
+        }
+
+        public void SpawnVisualAt(int worldX, int worldY, ushort structureID)
+        {
+            if (structureID == GameConstants.STRUCTURE_EMPTY) return;
+            if (structureRegistry == null) ServiceLocator.TryGet(out structureRegistry);
+            if (structureRegistry == null) return;
+
+            var entry = structureRegistry.Get(structureID);
+            if (entry == null || entry.visualPrefab == null) return;
+
+            Vector3 worldPos = new Vector3(worldX + 0.5f, worldY + 0.5f, -0.1f);
+            if (ServiceLocator.TryGet<ObjectPoolManager>(out var pool))
+            {
+                GameObject visual = pool.SpawnFromPool(structureID, entry.visualPrefab, worldPos);
+                if (visual == null) return;
+
+                var sr = visual.GetComponent<SpriteRenderer>();
+                if (sr != null) 
+                { 
+                    sr.material = new Material(Shader.Find("Sprites/Default")); 
+                    sr.sortingOrder = 100; 
+
+                    if (entry.category == AstroPioneer.Data.StructureCategory.Crop && entry.sprites != null)
+                    {
+                        // Newly placed crop is at stage 0
+                        if (entry.sprites.Length > 0) sr.sprite = entry.sprites[0];
+                    }
+                    else if (entry.sprites != null && entry.sprites.Length > 0) 
+                    {
+                        sr.sprite = entry.sprites[0];
+                    }
+                }
+
+                visual.transform.SetParent(null);
+                visual.transform.position = worldPos;
+
+                var coord = ChunkCoord.FromGridPos(worldX, worldY);
+                if (!visualMap.ContainsKey(coord)) visualMap[coord] = new List<SpawnedVisual>();
+                ChunkCoord.WorldToLocal(worldX, worldY, out int lx, out int ly);
+                visualMap[coord].Add(new SpawnedVisual { localX = lx, localY = ly, structureID = structureID, go = visual, spriteRenderer = sr });
+            }
+        }
+
+        public void DespawnVisualAt(int worldX, int worldY)
+        {
+            var coord = ChunkCoord.FromGridPos(worldX, worldY);
+            if (!visualMap.TryGetValue(coord, out var visuals)) return;
+            ChunkCoord.WorldToLocal(worldX, worldY, out int lx, out int ly);
+
+            for (int i = visuals.Count - 1; i >= 0; i--)
+            {
+                if (visuals[i].localX == lx && visuals[i].localY == ly)
+                {
+                    if (ServiceLocator.TryGet<ObjectPoolManager>(out var pool))
+                        pool.ReturnToPool(visuals[i].structureID, visuals[i].go);
+                    visuals.RemoveAt(i);
+                }
+            }
+        }
+
+        public void UpdateVisualMetadata(int worldX, int worldY)
+        {
+            var coord = ChunkCoord.FromGridPos(worldX, worldY);
+            if (!visualMap.TryGetValue(coord, out var visuals)) return;
+
+            if (ServiceLocator.TryGet<ChunkManager>(out var cm) && cm.TryGetChunkAndLocal(worldX, worldY, out Chunk chunk, out int lx, out int ly))
+            {
+                ushort id = chunk.StructureLayer.Get(lx, ly);
+                if (id == GameConstants.STRUCTURE_EMPTY) return;
+
+                var entry = structureRegistry != null ? structureRegistry.Get(id) : null;
+                if (entry == null || entry.visualPrefab == null) return;
+
+                foreach (var v in visuals)
+                {
+                    if (v.localX == lx && v.localY == ly && v.go != null && entry.category == StructureCategory.Crop && v.spriteRenderer != null)
+                    {
+                        byte meta = chunk.MetadataLayer.Get(lx, ly);
+                        int stage = meta & GameConstants.META_GROWTH_MASK;
+                        if (entry.sprites != null && stage < entry.sprites.Length) v.spriteRenderer.sprite = entry.sprites[stage];
+                        break;
+                    }
+                }
+            }
+        }
+
+        private void SpawnLayerVisual(Chunk chunk, GridLayer<ushort> layer, int x, int y, List<SpawnedVisual> visuals)
+        {
+            ushort id = layer.Get(x, y);
+            if (id == GameConstants.STRUCTURE_EMPTY) return;
+            if (structureRegistry == null) ServiceLocator.TryGet(out structureRegistry);
+            var entry = structureRegistry != null ? structureRegistry.Get(id) : null;
+            if (entry == null || entry.visualPrefab == null) return;
+
+            float worldX = chunk.Coord.WorldOriginX + x + 0.5f;
+            float worldY = chunk.Coord.WorldOriginY + y + 0.5f;
+            Vector3 worldPos = new Vector3(worldX, worldY, 0f);
+
+            if (ServiceLocator.TryGet<ObjectPoolManager>(out var pool))
+            {
+                GameObject visual = pool.SpawnFromPool(id, entry.visualPrefab, worldPos);
+                if (visual == null) return;
+                
+                var machine = visual.GetComponent<AstroPioneer.Interfaces.ISavableMachine>();
+                if (machine != null)
+                {
+                    byte[] state = GridManager.Instance.GetComplexState(new Vector2Int(Mathf.FloorToInt(worldX), Mathf.FloorToInt(worldY)));
+                    if (state != null) machine.LoadState(new System.ReadOnlySpan<byte>(state));
+                }
+
+                var sr = visual.GetComponent<SpriteRenderer>();
+                if (sr != null)
+                {
+                    sr.material = new Material(Shader.Find("Sprites/Default"));
+                    sr.sortingOrder = 100;
+                    if (entry.category == StructureCategory.Crop && entry.sprites != null)
+                    {
+                        int stage = chunk.MetadataLayer.Get(x, y) & GameConstants.META_GROWTH_MASK;
+                        if (stage < entry.sprites.Length) sr.sprite = entry.sprites[stage];
+                    }
+                    else if (entry.sprites != null && entry.sprites.Length > 0) sr.sprite = entry.sprites[0];
+                }
+
+                visual.transform.SetParent(null);
+                visual.transform.position = worldPos;
+                visuals.Add(new SpawnedVisual { localX = x, localY = y, structureID = id, go = visual, spriteRenderer = sr });
+            }
+        }
+
+        private struct SpawnedVisual
+        {
+            public int localX, localY;
+            public ushort structureID;
+            public GameObject go;
+            public SpriteRenderer spriteRenderer;
+        }
+    }
+}
+
+
+

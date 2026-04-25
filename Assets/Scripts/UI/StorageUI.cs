@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.Pool;
 using System.Collections.Generic;
 using AstroPioneer.Machines;
 using AstroPioneer.Data;
@@ -23,6 +24,7 @@ namespace AstroPioneer.UI
         private InventorySlotUI dragSourceSlot;
         private Canvas rootCanvas;
         private InventoryUI cachedInventoryUI;
+        private ObjectPool<InventorySlotUI> slotPool;
 
         public InventorySlotUI DragSourceSlot => dragSourceSlot;
         public MachineStorage CurrentStorage => currentStorage;
@@ -41,6 +43,26 @@ namespace AstroPioneer.UI
             }
             
             gameObject.SetActive(false);
+            SetupPool();
+        }
+
+        private void SetupPool()
+        {
+            if (slotPool == null)
+            {
+                slotPool = new ObjectPool<InventorySlotUI>(
+                    createFunc: () => {
+                        var obj = Instantiate(slotPrefab, slotContainer);
+                        return obj.GetComponent<InventorySlotUI>();
+                    },
+                    actionOnGet: (slot) => slot.gameObject.SetActive(true),
+                    actionOnRelease: (slot) => {
+                        slot.ClearSlot();
+                        slot.gameObject.SetActive(false);
+                    },
+                    actionOnDestroy: (slot) => Destroy(slot.gameObject)
+                );
+            }
         }
 
         public void Open(MachineStorage storage)
@@ -72,9 +94,10 @@ namespace AstroPioneer.UI
 
         private void InitializeSlots()
         {
-            foreach (Transform child in slotContainer)
+            SetupPool();
+            foreach (var slot in uiSlots)
             {
-                Destroy(child.gameObject);
+                slotPool.Release(slot);
             }
             uiSlots.Clear();
 
@@ -82,14 +105,11 @@ namespace AstroPioneer.UI
             for (int i = 0; i < storageSlots.Count; i++)
             {
                 int index = i;
-                GameObject newSlotObj = Instantiate(slotPrefab, slotContainer);
-                InventorySlotUI uiSlot = newSlotObj.GetComponent<InventorySlotUI>();
-                if (uiSlot != null)
-                {
-                    uiSlot.Setup((clickType) => OnSlotClicked(index, clickType));
-                    uiSlot.SetupDrag(index, OnStorageBeginDrag, OnStorageDrop, OnStorageEndDrag);
-                    uiSlots.Add(uiSlot);
-                }
+                InventorySlotUI uiSlot = slotPool.Get();
+                uiSlot.transform.SetAsLastSibling();
+                uiSlot.Setup((clickType) => OnSlotClicked(index, clickType));
+                uiSlot.SetupDrag(index, OnStorageBeginDrag, OnStorageDrop, OnStorageEndDrag);
+                uiSlots.Add(uiSlot);
             }
         }
 

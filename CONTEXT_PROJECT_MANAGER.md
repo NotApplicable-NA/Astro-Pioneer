@@ -1,8 +1,9 @@
 # CONTEXT: Project Manager - Astro-Pioneer
 
 **Document Purpose:** Transfer PM persona context ke model berikutnya  
-**Last Updated:** 2025-12-14 20:39  
-**Sprint:** Sprint 2 (Wrapping Up) → Sprint 3 (Ready)
+**Last Updated:** 2026-01-31 (Current)
+**Sprint:** Sprint 4 (Planning/Overhaul)
+
 
 ---
 
@@ -24,10 +25,10 @@
 **Genre:** Premium PC Space Farming Sim (Steam)  
 **Engine:** Unity 2022 LTS  
 **Render Pipeline:** Universal Render Pipeline (URP) 2D Renderer (MANDATORY)  
-**Visual Style:** High-Fidelity Pixel Art "Solarpunk" (Sage Green #9DC183, Cream #F5F5DC, Teal #008080)  
+**Visual Style:** Clean 16-Bit Pixel Art "Solarpunk" (Sage Green #9DC183, Cream #F5F5DC, Teal #008080)  
 **UI Style:** Hybrid HD (GDD 2.2 updated - Dave the Diver reference)  
 **Core Loop:** Farm → Harvest → Trade → Upgrade Ship → Explore Planets  
-**PPU:** Strictly 32 Pixels Per Unit, Filter Mode: Point  
+**PPU:** Strictly 16 Pixels Per Unit, Filter Mode: Point  
 **Fail State:** NO GAME OVER - "Rescue Protocol" (Teleport + Skip Day + Drop 15% Items)
 
 **Repository:** https://github.com/NotApplicable-NA/Astro-Pioneer  
@@ -108,35 +109,59 @@
 
 ---
 
-## 📋 SPRINT 2 - IN PROGRESS
 
-### Issues Status:
+> [!NOTE]
+> **GDD STATUS: ACTIVE (V3.5)**
+> GDD has been updated to Version 3.5 "Design Revision".
+> **Key Changes (V3.5):** PPU 16, Clean 16-Bit Solarpunk style, Bot-E is now Rover Buddy.
+> Source of Truth: `README.md` (Local + Remote).
+> **Current Focus:** Sprint 5 Execution.
 
-| Issue | Title | Art | Dev | Status |
-|-------|-------|-----|-----|--------|
-| #4 | Hybrid HD UI | ✅ | ⏳ | 🔄 OPEN (Dev pending) |
-| #5 | Basic Sprinkler Machine | ✅ | ✅ | ✅ CLOSED |
-| #6 | Sprinkler VFX Animation | ✅ | ⏳ | 🔄 OPEN (Dev pending) |
 
-### Assets Delivered Sprint 2:
-- `Assets/Art/Sprites/Machines/Machine_Sprinkler.png`
-- `Assets/Art/Sprites/Machines/Machine_Sprinkler_Normal.png`
-- `Assets/Scripts/Machines/Sprinkler.cs`
-- `Assets/Art/Sprites/UI/Panels/Panel_Main.png`
-- `Assets/Art/Sprites/UI/Panels/Panel_Secondary.png`
-- `Assets/Art/Sprites/UI/Buttons/Button_Primary.png`
-- `Assets/Art/Sprites/UI/Buttons/Button_Secondary.png`
-- `Assets/Art/Sprites/VFX/VFX_Sprinkler_Water.png` (1.2 MB, 8-frame sprite sheet)
 
-### Key Decisions Made:
-- **UI Scope:** Option A (Full overhaul - panels, buttons, HUD)
-- **Font:** Inter (modern, clean)
-- **Art Style:** Consistent Solarpunk theme
-- **Machine_Harvester:** Reclassified as Tier 3 (Late Game)
+## ✅ SPRINT 4 - COMPLETE (QA VERIFIED)
 
-### Pending Sprint 2 Tasks:
-1. Developer → TICKET-004 integration (9-slice configuration)
-2. Developer → TICKET-006 integration (slice VFX sprite sheet, create animation)
+### Achievements:
+- **Core Time System:** Day/Night cycle implementation (Ticket #13).
+- **Time Events:** Trigger events based on time (Ticket #14).
+- **Inventory Core:** Robust backend for item management (Ticket #16).
+- **Holographic UI:** First implementation of GDD V3.0 Art Direction (Ticket #17, #18).
+- **Fatigue System:** Player energy mechanics (Ticket #15).
+
+### Closed Issues:
+| Ticket | Title | Status |
+| :--- | :--- | :--- |
+| **#13** | **Day/Night Cycle System** | ✅ CLOSED (QA Verified) |
+| **#14** | **Time-Based Events** | ✅ CLOSED (QA Verified) |
+| **#15** | **Fatigue/Sleep System** | ✅ CLOSED (QA Verified) |
+| **#16** | **Inventory System Core** | ✅ CLOSED (QA Verified) |
+| **#17** | **Inventory UI Panels** | ✅ CLOSED (QA Verified) |
+| **#18** | **Hotbar UI** | ✅ CLOSED (QA Verified) |
+
+---
+
+## 📋 SPRINT 5 - AUTOMATION TIER 2 (READY)
+
+**Focus:** Transport Bots & Intermediate Automation
+**GDD Reference:** V3.0 (Section 3.2 & 6.2)
+
+### 🚀 Upcoming Assignments (To Be Assigned):
+
+#### 👨‍💻 Developer Tasks (AI & Pathfinding):
+| Ticket | Task | Priority |
+| :--- | :--- | :--- |
+| **#22** | **Bot Pathfinding System** | [P0] - A* Grid Navigation |
+| **#21** | **Transport Bot (Tier 2)** | [P1] - Harvest Collection Logic |
+| **#19** | **Water Pump Machine** | [P1] - Water Source Logic |
+| **#20** | **Small Storage Bin** | [P1] - Storage Logic |
+
+#### 🎨 Game Artist Tasks (Bot Assets):
+| Ticket | Task | Style Guide |
+| :--- | :--- | :--- |
+| **#23** | **Transport Bot VFX** | Bio-Lume Trails, Pickup Animations |
+| **#21** | **Bot Sprite (Bot-E)** | Industrial/Cute design |
+
+
 
 ### ✅ FULL PRODUCT BACKLOG CREATED (Dec 14, 2025)
 

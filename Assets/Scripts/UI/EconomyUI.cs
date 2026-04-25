@@ -10,7 +10,7 @@ namespace AstroPioneer.UI
         [SerializeField] private TextMeshProUGUI creditsText;
         [SerializeField] private TextMeshProUGUI trustText;
 
-        void Start()
+        void OnEnable()
         {
             if (CurrencyManager.Instance != null)
             {
@@ -22,7 +22,7 @@ namespace AstroPioneer.UI
             }
         }
 
-        void OnDestroy()
+        void OnDisable()
         {
             if (CurrencyManager.Instance != null)
             {
@@ -31,11 +31,15 @@ namespace AstroPioneer.UI
             }
         }
 
+        void OnDestroy()
+        {
+        }
+
         private void UpdateCreditsDisplay(int amount)
         {
             if (creditsText != null)
             {
-                creditsText.text = amount.ToString();
+                creditsText.SetText("{0}", amount);
             }
         }
 
@@ -43,7 +47,7 @@ namespace AstroPioneer.UI
         {
             if (trustText != null)
             {
-                trustText.text = amount.ToString();
+                trustText.SetText("{0}", amount);
             }
         }
     }

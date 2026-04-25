@@ -19,8 +19,15 @@ namespace AstroPioneer.Managers
                 Destroy(gameObject);
                 return;
             }
+
             Instance = this;
+            transform.SetParent(null);
             DontDestroyOnLoad(gameObject);
+        }
+
+        void OnDestroy()
+        {
+            if (Instance == this) Instance = null;
         }
 
         public void ShowTutorial(string tutorialId, string message)

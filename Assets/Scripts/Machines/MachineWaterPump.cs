@@ -18,11 +18,15 @@ namespace AstroPioneer.Machines
 
         [Header("Item Data")]
         [SerializeField] private InventoryItem waterItemData;
+        public InventoryItem WaterItemData => waterItemData;
 
         [Header("State")]
         [SerializeField] private float currentWaterStored;
         [SerializeField] private bool isActive = true;
         private bool isPowered;
+
+        /// <summary>True if the pump has at least 1 unit of water available for pickup.</summary>
+        public bool HasWater => currentWaterStored >= 1f;
 
         // ─── IPowerConsumer ───
         public float PowerRequired => powerConsumption;
@@ -66,10 +70,7 @@ namespace AstroPioneer.Machines
 
         private void TryRegisterOnGrid()
         {
-            if (GridManager.Instance == null) return;
-            Vector2Int pos = GridManager.Instance.WorldToGridPosition(transform.position);
-            if (!GridManager.Instance.GetOccupiedCells().ContainsKey(pos))
-                GridManager.Instance.TryOccupyCell(pos, gameObject);
+            // Grid registration is now managed DOD-wide by PlacementManager/ChunkManager
         }
     }
 }

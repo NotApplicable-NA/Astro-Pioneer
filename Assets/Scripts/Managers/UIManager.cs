@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using System.Collections.Generic;
+using AstroPioneer.Core;
 
 namespace AstroPioneer.Managers
 {
@@ -24,13 +25,19 @@ namespace AstroPioneer.Managers
         {
             if (Instance != null && Instance != this)
             {
-                Destroy(gameObject);
+                Destroy(this);
                 return;
             }
             Instance = this;
+            ServiceLocator.Register(this);
             // Only persist across scenes if this is a root-level object
             if (transform.parent == null)
                 DontDestroyOnLoad(gameObject);
+        }
+
+        void OnDestroy()
+        {
+            if (Instance == this) { Instance = null; ServiceLocator.Unregister<UIManager>(); }
         }
 
         void OnEnable()
@@ -42,12 +49,6 @@ namespace AstroPioneer.Managers
         {
             SceneManager.sceneLoaded -= OnSceneLoaded;
         }
-
-        void OnDestroy()
-        {
-            if (Instance == this) Instance = null;
-        }
-
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
             ReassignPanelReferences();

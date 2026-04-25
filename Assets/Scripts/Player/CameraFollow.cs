@@ -1,4 +1,5 @@
 using UnityEngine;
+using AstroPioneer.Player;
 
 namespace AstroPioneer.Player
 {
@@ -12,22 +13,23 @@ namespace AstroPioneer.Player
         [SerializeField] private Transform target;
 
         [Header("Settings")]
-        [SerializeField] private float smoothSpeed = 8f;
+        [SerializeField] private float smoothTime = 0.15f;
         [SerializeField] private Vector3 offset = new Vector3(0f, 0f, -10f);
+
+        private Vector3 currentVelocity = Vector3.zero;
+
+        void Start()
+        {
+            if (target == null && PlayerToolState.Instance != null)
+                target = PlayerToolState.Instance.transform;
+        }
 
         void LateUpdate()
         {
-            if (target == null)
-            {
-                // Auto-find player if not assigned
-                GameObject player = GameObject.FindGameObjectWithTag("Player");
-                if (player != null) target = player.transform;
-                return;
-            }
+            if (target == null) return;
 
             Vector3 desiredPosition = target.position + offset;
-            Vector3 smoothedPosition = Vector3.Lerp(transform.position, desiredPosition, smoothSpeed * Time.deltaTime);
-            transform.position = smoothedPosition;
+            transform.position = Vector3.SmoothDamp(transform.position, desiredPosition, ref currentVelocity, smoothTime);
         }
 
         /// <summary>

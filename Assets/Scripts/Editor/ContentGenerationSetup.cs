@@ -104,25 +104,24 @@ namespace AstroPioneer.EditorUtilities
 
         private static void GenerateLateGameCrops()
         {
-            CreateCrop("CropData_FluxBerry", "Flux Berry", new float[] { 30, 30, 30, 30 });
-            CreateCrop("CropData_QuantumCorn", "Quantum Corn", new float[] { 45, 45, 45, 45 });
-            CreateCrop("CropData_IronRoot", "Iron Root", new float[] { 60, 60, 60, 60 });
+            CreateCrop("CropData_FluxBerry", "Flux Berry", new int[] { 1, 1, 2, 2 });
+            CreateCrop("CropData_QuantumCorn", "Quantum Corn", new int[] { 2, 2, 2, 2 });
+            CreateCrop("CropData_IronRoot", "Iron Root", new int[] { 3, 3, 3, 3 });
         }
 
-        private static void CreateCrop(string assetName, string displayName, float[] times)
+        private static void CreateCrop(string assetName, string displayName, int[] times)
         {
             string path = $"Assets/Data/Crops/{assetName}.asset";
-            if (AssetDatabase.LoadAssetAtPath<CropData>(path) != null) return;
+            if (AssetDatabase.LoadAssetAtPath<CropStructureData>(path) != null) return;
 
-            CropData c = ScriptableObject.CreateInstance<CropData>();
-            c.cropID = assetName;
+            CropStructureData c = ScriptableObject.CreateInstance<CropStructureData>();
             c.displayName = displayName;
-            c.growthTimePerStage = times;
-            c.growthStageSprites = new Sprite[4];
+            c.daysToGrowPerStage = times;
+            c.sprites = new Sprite[4];
 
             AssetDatabase.CreateAsset(c, path);
             
-            CreateInventoryItem($"Item_Seed_{assetName.Replace("CropData_", "")}", $"{displayName} Seed", "A high tier seed.", ItemType.Tool, 99, 10, 5);
+            CreateInventoryItem($"Item_Seed_{assetName.Replace("CropData_", "")}", $"{displayName} Seed", "A high tier seed.", ItemType.Seed, 99, 10, 5);
             CreateInventoryItem($"Item_{assetName.Replace("CropData_", "")}", $"{displayName}", "High yield crop output.", ItemType.Resource, 99, 50, 15);
         }
 
@@ -187,6 +186,19 @@ namespace AstroPioneer.EditorUtilities
             go.transform.localScale = new Vector3(dims.x, dims.y, 1);
             go.AddComponent<BoxCollider2D>();
 
+            // Configure Rigidbody2D (added by RequireComponent if script exists, or manually if needed)
+            Rigidbody2D rb = go.GetComponent<Rigidbody2D>();
+            if (rb == null && (itemID == "Item_AgriMech" || itemID == "Item_Harvester")) 
+                rb = go.AddComponent<Rigidbody2D>();
+
+            if (rb != null)
+            {
+                rb.bodyType = RigidbodyType2D.Kinematic;
+                rb.gravityScale = 0;
+                rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+                rb.sleepMode = RigidbodySleepMode2D.NeverSleep;
+            }
+
             // MachineIDTag for save/load tracking
             MachineIDTag tag = go.AddComponent<MachineIDTag>();
             tag.itemID = itemID;
@@ -196,13 +208,14 @@ namespace AstroPioneer.EditorUtilities
             GameObject prefab = PrefabUtility.SaveAsPrefabAsset(go, prefabPath);
             Object.DestroyImmediate(go); // Cleanup temp object
 
-            // Link Prefab to InventoryItem
+            // Link Prefab to InventoryItem (V20: via placedStructure)
             string itemPath = $"Assets/Data/Items/{itemID}.asset";
             InventoryItem item = AssetDatabase.LoadAssetAtPath<InventoryItem>(itemPath);
-            if (item != null && prefab != null)
+            if (item != null && item.placedStructure != null && prefab != null)
             {
-                item.placeablePrefab = prefab;
-                item.dimensions = dims;
+                item.placedStructure.visualPrefab = prefab;
+                item.placedStructure.dimensions = dims;
+                EditorUtility.SetDirty(item.placedStructure);
                 EditorUtility.SetDirty(item);
             }
         }
@@ -210,7 +223,7 @@ namespace AstroPioneer.EditorUtilities
         private static void CreateMachinePrefab<T>(string prefabName, string itemID, Vector2Int dims, Color tint) where T : Component
         {
             string prefabPath = $"Assets/Prefab/Machines/{prefabName}.prefab";
-            if (AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath) != null) AssetDatabase.DeleteAsset(prefabPath);
+            // Do not DeleteAsset — SaveAsPrefabAsset handles overwriting and prevents meta-file locks.
 
             GameObject go = new GameObject(prefabName);
             go.AddComponent<T>(); // Machine Script
@@ -220,7 +233,7 @@ namespace AstroPioneer.EditorUtilities
         private static void CreateMachinePrefab(string prefabName, string itemID, Vector2Int dims, Color tint)
         {
             string prefabPath = $"Assets/Prefab/Machines/{prefabName}.prefab";
-            if (AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath) != null) AssetDatabase.DeleteAsset(prefabPath);
+            // Do not DeleteAsset — SaveAsPrefabAsset handles overwriting and prevents meta-file locks.
 
             GameObject go = new GameObject(prefabName);
             SetupPrefabVisualsAndLink(go, prefabPath, itemID, dims, tint);
@@ -232,7 +245,6 @@ namespace AstroPioneer.EditorUtilities
             if (AssetDatabase.LoadAssetAtPath<InventoryItem>(path) != null) return;
 
             InventoryItem i = ScriptableObject.CreateInstance<InventoryItem>();
-            i.id = assetName;
             i.displayName = displayName;
             i.description = desc;
             i.type = type;

@@ -1,66 +1,55 @@
 using UnityEngine;
 using System.Collections.Generic;
 using AstroPioneer.Machines.Automation;
+using AstroPioneer.Core;
 
 namespace AstroPioneer.Managers
 {
     /// <summary>
-    /// BotManager — Task queue manager that assigns transport tasks to available bots.
+    /// BotManager — V22 Refactored: Population tracker only.
+    /// 
+    /// Task queuing has been moved to BotStation (Hub-Centric Architecture).
+    /// This manager now only tracks the total number of bots in the world
+    /// for UI display and debug purposes.
     /// </summary>
     public class BotManager : MonoBehaviour
     {
         public static BotManager Instance { get; private set; }
 
-        private readonly List<TransportBot> activeBots = new List<TransportBot>();
-        private readonly Queue<(Vector3 source, Vector3 target)> taskQueue = new Queue<(Vector3, Vector3)>();
+        private readonly List<TransportBot> allBots = new List<TransportBot>();
 
         void Awake()
         {
-            if (Instance != null) { Destroy(gameObject); return; }
+            if (Instance != null) { Destroy(this); return; }
             Instance = this;
+            ServiceLocator.Register(this);
         }
 
         void OnDestroy()
         {
-            if (Instance == this) Instance = null;
+            if (Instance == this) { Instance = null; ServiceLocator.Unregister<BotManager>(); }
         }
-
-        void Update() => AssignTasks();
 
         public void RegisterBot(TransportBot bot)
         {
-            if (!activeBots.Contains(bot))
-                activeBots.Add(bot);
+            if (bot != null && !allBots.Contains(bot))
+                allBots.Add(bot);
         }
 
-        public void UnregisterBot(TransportBot bot) => activeBots.Remove(bot);
+        public void UnregisterBot(TransportBot bot) => allBots.Remove(bot);
 
-        public void RequestTransport(Vector3 sourcePos, Vector3 targetPos)
+        /// <summary>Total bots alive in the world (for UI/debug).</summary>
+        public int TotalBotCount
         {
-            taskQueue.Enqueue((sourcePos, targetPos));
-        }
-
-        private void AssignTasks()
-        {
-            if (taskQueue.Count == 0 || activeBots.Count == 0) return;
-
-            for (int i = activeBots.Count - 1; i >= 0; i--)
+            get
             {
-                if (taskQueue.Count == 0) break;
-
-                var bot = activeBots[i];
-                if (bot == null)
-                {
-                    activeBots.RemoveAt(i);
-                    continue;
-                }
-
-                if (bot.IsAvailable)
-                {
-                    var task = taskQueue.Dequeue();
-                    bot.AssignTask(task.source, task.target);
-                }
+                // Clean nulls lazily
+                for (int i = allBots.Count - 1; i >= 0; i--)
+                    if (allBots[i] == null) allBots.RemoveAt(i);
+                return allBots.Count;
             }
         }
+
+        public IReadOnlyList<TransportBot> GetAllBots() => allBots;
     }
 }

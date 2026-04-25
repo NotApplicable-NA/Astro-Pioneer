@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.Pool;
 using System.Collections;
 using System.Collections.Generic;
 using AstroPioneer.Managers;
@@ -39,6 +40,26 @@ namespace AstroPioneer.UI
         private List<GameObject> hotbarHighlights = new List<GameObject>();
 
         private bool needsInit = false;
+        private ObjectPool<InventorySlotUI> slotPool;
+
+        private void SetupPool()
+        {
+            if (slotPool == null)
+            {
+                slotPool = new ObjectPool<InventorySlotUI>(
+                    createFunc: () => {
+                        var obj = Instantiate(slotPrefab, slotContainer);
+                        return obj.GetComponent<InventorySlotUI>();
+                    },
+                    actionOnGet: (slot) => slot.gameObject.SetActive(true),
+                    actionOnRelease: (slot) => {
+                        slot.ClearSlot();
+                        slot.gameObject.SetActive(false);
+                    },
+                    actionOnDestroy: (slot) => Destroy(slot.gameObject)
+                );
+            }
+        }
 
         private void OnEnable()
         {
@@ -110,9 +131,11 @@ namespace AstroPioneer.UI
             rootCanvas = GetComponentInParent<Canvas>();
             cachedStorageUI = FindObjectOfType<StorageUI>();
 
-            foreach (Transform child in slotContainer)
+            SetupPool();
+
+            foreach (var slot in uiSlots)
             {
-                Destroy(child.gameObject);
+                slotPool.Release(slot);
             }
             uiSlots.Clear();
             hotbarHighlights.Clear();
@@ -122,35 +145,41 @@ namespace AstroPioneer.UI
             for (int i = 0; i < dataSlots.Count; i++)
             {
                 int index = i;
-                GameObject newSlotObj = Instantiate(slotPrefab, slotContainer);
-                InventorySlotUI uiSlot = newSlotObj.GetComponent<InventorySlotUI>();
+                InventorySlotUI uiSlot = slotPool.Get();
+                uiSlot.transform.SetAsLastSibling();
 
-                if (uiSlot != null)
-                {
-                    uiSlot.Setup((clickType) => OnSlotClicked(index, clickType));
-                    uiSlot.SetupDrag(index, OnSlotBeginDrag, OnSlotDrop, OnSlotEndDrag);
-                    uiSlots.Add(uiSlot);
-                }
+                uiSlot.Setup((clickType) => OnSlotClicked(index, clickType));
+                uiSlot.SetupDrag(index, OnSlotBeginDrag, OnSlotDrop, OnSlotEndDrag);
+                uiSlots.Add(uiSlot);
 
-                Image slotBg = newSlotObj.GetComponent<Image>();
+                Image slotBg = uiSlot.GetComponent<Image>();
                 if (slotBg != null)
                     slotBg.color = (i < hotbarSlotCount) ? hotbarSlotTint : normalSlotTint;
 
                 if (i < hotbarSlotCount && highlightSprite != null)
                 {
-                    GameObject hlObj = new GameObject("Highlight");
-                    hlObj.transform.SetParent(newSlotObj.transform, false);
+                    Transform existingHl = uiSlot.transform.Find("Highlight");
+                    GameObject hlObj;
+                    if (existingHl == null)
+                    {
+                        hlObj = new GameObject("Highlight");
+                        hlObj.transform.SetParent(uiSlot.transform, false);
 
-                    RectTransform hrt = hlObj.AddComponent<RectTransform>();
-                    hrt.anchorMin = Vector2.zero;
-                    hrt.anchorMax = Vector2.one;
-                    hrt.offsetMin = Vector2.zero;
-                    hrt.offsetMax = Vector2.zero;
+                        RectTransform hrt = hlObj.AddComponent<RectTransform>();
+                        hrt.anchorMin = Vector2.zero;
+                        hrt.anchorMax = Vector2.one;
+                        hrt.offsetMin = Vector2.zero;
+                        hrt.offsetMax = Vector2.zero;
 
-                    Image hlImg = hlObj.AddComponent<Image>();
-                    hlImg.sprite = highlightSprite;
-                    hlImg.raycastTarget = false;
-                    hlImg.preserveAspect = true;
+                        Image hlImg = hlObj.AddComponent<Image>();
+                        hlImg.sprite = highlightSprite;
+                        hlImg.raycastTarget = false;
+                        hlImg.preserveAspect = true;
+                    }
+                    else
+                    {
+                        hlObj = existingHl.gameObject;
+                    }
 
                     hlObj.SetActive(false);
                     hotbarHighlights.Add(hlObj);

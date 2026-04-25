@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cd340602b70495a4991244597ac2e18f, type: 3}
+  m_Name: Crop_SpacePotato
+  m_EditorClassIdentifier: 
+  displayName: Space Potato
+  category: 2
+  sprites:
+  - {fileID: 691154124, guid: 61342109aec2536479ff934f3a56297a, type: 3}
+  - {fileID: -1138698064, guid: 61342109aec2536479ff934f3a56297a, type: 3}
+  - {fileID: -1723823247, guid: 61342109aec2536479ff934f3a56297a, type: 3}
+  - {fileID: 323499500, guid: 61342109aec2536479ff934f3a56297a, type: 3}
+  visualPrefab: {fileID: 6666257368488559117, guid: 1e722209ce706b643b37c3e1912ef30d, type: 3}
+  dimensions: {x: 1, y: 1}
+  blocksMacroPlacement: 1
+  hasComplexState: 0
+  sellPrice: 10
+  buyPrice: 0
+  growthTimePerStage:
+  - 30
+  - 30
+  - 30
+  - 30
+  requiresWater: 1
+  harvestItem: {fileID: 0}
+  harvestQuantity: 1

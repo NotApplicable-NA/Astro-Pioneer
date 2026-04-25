@@ -12,15 +12,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f4d6ea7a3e98598489d89be76b882835, type: 3}
   m_Name: Item_Fence
   m_EditorClassIdentifier: 
-  id: Item_Fence
-  displayName: Energy Fence
-  description: Used to create enclosures.
-  icon: {fileID: 0}
+  displayName: Fence
+  description: 
+  icon: {fileID: -1874795173, guid: d936f3a8b9bea5945ae1d09df93c5900, type: 3}
   isStackable: 1
-  maxStackSize: 99
+  maxStackSize: 64
+  isMicroGridItem: 1
+  isEntity: 0
   type: 4
-  sellPrice: 2
-  buyPrice: 10
-  plantData: {fileID: 0}
-  placeablePrefab: {fileID: 445689655786040613, guid: 53584ea35ddf015458198f32053f2fec, type: 3}
-  dimensions: {x: 1, y: 1}
+  toolAction: {fileID: 0}
+  placedStructure: {fileID: 11400000, guid: 768673c6d9d73f14ab7da59c2fd86506, type: 2}
+  sellPrice: 10
+  buyPrice: 0

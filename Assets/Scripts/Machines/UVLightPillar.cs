@@ -54,10 +54,7 @@ namespace AstroPioneer.Machines
 
         private void TryRegisterOnGrid()
         {
-            if (GridManager.Instance == null) return;
-            Vector2Int pos = GridManager.Instance.WorldToGridPosition(transform.position);
-            if (!GridManager.Instance.GetOccupiedCells().ContainsKey(pos))
-                GridManager.Instance.TryOccupyCell(pos, gameObject);
+            // Grid registration is now managed DOD-wide by PlacementManager/ChunkManager
         }
 
         void OnDrawGizmosSelected()

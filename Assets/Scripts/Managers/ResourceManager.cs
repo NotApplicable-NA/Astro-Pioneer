@@ -1,5 +1,6 @@
 using UnityEngine;
 using System;
+using AstroPioneer.Core;
 
 namespace AstroPioneer.Managers
 {
@@ -26,15 +27,22 @@ namespace AstroPioneer.Managers
         {
             if (Instance != null && Instance != this)
             {
-                Destroy(gameObject);
+                Destroy(this);
                 return;
             }
+
             Instance = this;
+            ServiceLocator.Register(this);
 
             // Initialize
             currentOxygen = maxOxygen;
             currentEnergy = maxEnergy;
             currentWater = maxWater;
+        }
+
+        void OnDestroy()
+        {
+            if (Instance == this) Instance = null;
         }
         
         void Start()
@@ -67,18 +75,6 @@ namespace AstroPioneer.Managers
             OnEnergyChanged?.Invoke(currentEnergy, maxEnergy);
         }
 
-        // Dirty flag to handle Inspector changes safely
-        private bool isDirty = false;
-
-        void Update()
-        {
-            if (isDirty)
-            {
-                isDirty = false;
-                UpdateAllUI();
-            }
-        }
-
         // Debug / Dev Tools
         public void UpdateAllUI()
         {
@@ -87,13 +83,6 @@ namespace AstroPioneer.Managers
             OnWaterChanged?.Invoke(currentWater, maxWater);
         }
 
-        void OnValidate()
-        {
-            // Allow testing from Inspector
-            if (Application.isPlaying)
-            {
-                isDirty = true;
-            }
-        }
+
     }
 }

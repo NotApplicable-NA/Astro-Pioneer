@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 using AstroPioneer.Managers;
+using AstroPioneer.Core;
 
 namespace AstroPioneer.Systems.Husbandry
 {
@@ -30,7 +31,14 @@ namespace AstroPioneer.Systems.Husbandry
     {
         public static EnclosureSystem Instance { get; private set; }
 
-        [SerializeField] private int maxEnclosureSize = 100;
+        // Caller-owned buffer — zero GC, safe for single-threaded use
+        private readonly List<Vector2Int> neighborBuffer = new List<Vector2Int>(4);
+        private readonly HashSet<Vector2Int> evaluatedTilesBuffer = new HashSet<Vector2Int>();
+        private readonly HashSet<Vector2Int> fenceBuffer = new HashSet<Vector2Int>();
+        private readonly HashSet<Vector2Int> fillAreaBuffer = new HashSet<Vector2Int>();
+        private readonly Queue<Vector2Int> fillQueueBuffer = new Queue<Vector2Int>();
+
+        private int maxEnclosureSize => GameConstants.MAX_ENCLOSURE_SIZE;
         
         // Use string ID for fenced enclosures
         private Dictionary<string, Enclosure> activeEnclosures = new Dictionary<string, Enclosure>();
@@ -43,7 +51,13 @@ namespace AstroPioneer.Systems.Husbandry
                 Destroy(gameObject);
                 return;
             }
+
             Instance = this;
+        }
+
+        void OnDestroy()
+        {
+            if (Instance == this) Instance = null;
         }
 
         /// <summary>
@@ -61,58 +75,59 @@ namespace AstroPioneer.Systems.Husbandry
             // Find all seeds (all empty cells adjacent to ANY fence)
             // A more optimized approach is needed for large grids, but this is fine for PPU 16 cozy games.
             HashSet<Vector2Int> allFences = GetAllFences();
-            HashSet<Vector2Int> evaluatedTiles = new HashSet<Vector2Int>();
+            evaluatedTilesBuffer.Clear();
 
             foreach (var fencePos in allFences)
             {
-                var neighbors = GridManager.Instance.GetNeighbors(fencePos);
-                foreach (var n in neighbors)
+                GridManager.Instance.GetNeighbors(fencePos, neighborBuffer);
+                foreach (var n in neighborBuffer)
                 {
-                    if (!allFences.Contains(n) && !evaluatedTiles.Contains(n))
+                    if (!allFences.Contains(n) && !evaluatedTilesBuffer.Contains(n))
                     {
-                        var area = FloodFillFindEnclosure(n, allFences, out bool isClosed);
-                        if (isClosed && area.Count > 0)
+                        if (FloodFillFindEnclosure(n, allFences, out bool isClosed))
                         {
                             // We found a closed loop!
                             string eId = $"Enclosure_{enclosureCounter++}";
-                            activeEnclosures[eId] = new Enclosure(eId, area);
+                            // Only allocate a NEW HashSet when we are 100% sure it's a valid enclosure
+                            activeEnclosures[eId] = new Enclosure(eId, new HashSet<Vector2Int>(fillAreaBuffer));
+                            evaluatedTilesBuffer.UnionWith(fillAreaBuffer);
                         }
-
-                        // Mark these as evaluated whether open or closed to avoid redundant fills
-                        evaluatedTiles.UnionWith(area);
+                        else
+                        {
+                            evaluatedTilesBuffer.UnionWith(fillAreaBuffer);
+                        }
                     }
                 }
             }
         }
 
-        private HashSet<Vector2Int> FloodFillFindEnclosure(Vector2Int startPoint, HashSet<Vector2Int> fenceMap, out bool isClosed)
+        private bool FloodFillFindEnclosure(Vector2Int startPoint, HashSet<Vector2Int> fenceMap, out bool isClosed)
         {
-            HashSet<Vector2Int> area = new HashSet<Vector2Int>();
-            Queue<Vector2Int> queue = new Queue<Vector2Int>();
+            fillAreaBuffer.Clear();
+            fillQueueBuffer.Clear();
             
-            queue.Enqueue(startPoint);
-            area.Add(startPoint);
+            fillQueueBuffer.Enqueue(startPoint);
+            fillAreaBuffer.Add(startPoint);
             isClosed = true;
 
             int safety = 0;
 
-            while (queue.Count > 0)
+            while (fillQueueBuffer.Count > 0)
             {
                 safety++;
                 if (safety > maxEnclosureSize)
                 {
                     // Too big to be an enclosure (or world is huge)
                     isClosed = false;
-                    return area;
+                    return false;
                 }
 
-                Vector2Int curr = queue.Dequeue();
+                Vector2Int curr = fillQueueBuffer.Dequeue();
 
                 // Check out of bounds (Grid edges)
                 if (IsGridEdge(curr))
                 {
                     isClosed = false;
-                    // Keep filling to mark all connected open space as evaluated, but we know it's not closed.
                 }
 
                 // Check 8 neighbors (including diagonals) to allow "leaks" through diagonal gaps
@@ -123,59 +138,56 @@ namespace AstroPioneer.Systems.Husbandry
                         if (x == 0 && y == 0) continue;
                         
                         Vector2Int neighbor = curr + new Vector2Int(x, y);
-                        if (GridManager.Instance.IsValidGridPosition(neighbor))
+                        int limit = GameConstants.WORLD_BOUNDARY_LIMIT;
+                        if (Mathf.Abs(neighbor.x) < limit && Mathf.Abs(neighbor.y) < limit)
                         {
-                            if (!area.Contains(neighbor) && !fenceMap.Contains(neighbor))
+                            if (!fillAreaBuffer.Contains(neighbor) && !fenceMap.Contains(neighbor))
                             {
-                                area.Add(neighbor);
-                                queue.Enqueue(neighbor);
+                                fillAreaBuffer.Add(neighbor);
+                                fillQueueBuffer.Enqueue(neighbor);
                             }
                         }
                     }
                 }
             }
 
-            return area;
+            return isClosed && fillAreaBuffer.Count > 0;
         }
 
         private bool IsGridEdge(Vector2Int pos)
         {
-            return pos.x == 0 || pos.y == 0 || 
-                   pos.x == GridManager.Instance.GridDimensions.x - 1 || 
-                   pos.y == GridManager.Instance.GridDimensions.y - 1;
+            int limit = GameConstants.WORLD_BOUNDARY_LIMIT;
+            return Mathf.Abs(pos.x) >= limit || Mathf.Abs(pos.y) >= limit;
         }
 
         private HashSet<Vector2Int> GetAllFences()
         {
-            HashSet<Vector2Int> fences = new HashSet<Vector2Int>();
+            fenceBuffer.Clear();
             
-            for (int x = 0; x < GridManager.Instance.GridDimensions.x; x++)
+            if (AstroPioneer.Core.ServiceLocator.TryGet<AstroPioneer.Core.ChunkManager>(out var cm))
             {
-                for (int y = 0; y < GridManager.Instance.GridDimensions.y; y++)
+                foreach(var chunk in cm.ActiveChunks.Values)
                 {
-                    Vector2Int pos = new Vector2Int(x, y);
-                    
-                    // 1. Check Macro Grid (Machines/Structures)
-                    GameObject macroObj = GridManager.Instance.GetOccupantAt(pos);
-                    if (macroObj != null && macroObj.name.Contains("Fence"))
+                    Vector2Int origin = new Vector2Int((int)chunk.Coord.WorldOriginX, (int)chunk.Coord.WorldOriginY);
+                    int w = AstroPioneer.Core.GameConstants.CHUNK_SIZE;
+                    for (int x = 0; x < w; x++)
                     {
-                        fences.Add(pos);
-                        continue;
-                    }
-
-                    // 2. Check Micro Grid (Pipes/Legacy Fences)
-                    var micro = GridManager.Instance.GetMicroOccupantsAt(pos);
-                    foreach (var obj in micro)
-                    {
-                        if (obj != null && obj.name.Contains("Fence"))
+                        for (int y = 0; y < w; y++)
                         {
-                            fences.Add(pos);
-                            break;
+                            Vector2Int pos = origin + new Vector2Int(x, y);
+                            ushort structID = chunk.StructureLayer.Get(x, y);
+                            ushort utilID = chunk.UtilityLayer.Get(x, y);
+
+                            if (structID != AstroPioneer.Core.GameConstants.STRUCTURE_EMPTY || 
+                                utilID != AstroPioneer.Core.GameConstants.STRUCTURE_EMPTY)
+                            {
+                                fenceBuffer.Add(pos);
+                            }
                         }
                     }
                 }
             }
-            return fences;
+            return fenceBuffer;
         }
 
         public Enclosure GetEnclosureAt(Vector2Int pos)

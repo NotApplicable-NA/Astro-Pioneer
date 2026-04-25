@@ -6,6 +6,7 @@ namespace AstroPioneer.Systems.Pathfinding
     {
         public int x;
         public int y;
+        public Vector2Int position;
         
         public int gCost;
         public int hCost;
@@ -18,6 +19,7 @@ namespace AstroPioneer.Systems.Pathfinding
         {
             this.x = x;
             this.y = y;
+            this.position = new Vector2Int(x, y);
             isWalkable = true;
         }
 

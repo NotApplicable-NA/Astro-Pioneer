@@ -16,6 +16,7 @@ namespace AstroPioneer.VFX
         private SpriteRenderer spriteRenderer;
         private int currentFrame = 0;
         private float frameTimer = 0f;
+        private float elapsedTime = 0f;
         private bool isPlaying = false;
         
         void Awake()
@@ -32,7 +33,14 @@ namespace AstroPioneer.VFX
         void Update()
         {
             if (!isPlaying) return;
-            
+
+            elapsedTime += Time.deltaTime;
+            if (elapsedTime >= duration)
+            {
+                StopVFX();
+                return;
+            }
+
             frameTimer += Time.deltaTime;
             if (frameTimer >= 1f / frameRate)
             {
@@ -61,19 +69,19 @@ namespace AstroPioneer.VFX
             
             transform.position = worldPos;
             isPlaying = true;
+            enabled = true;
             currentFrame = 0;
             frameTimer = 0f;
+            elapsedTime = 0f;
             spriteRenderer.enabled = true;
             spriteRenderer.sprite = growthSprites[0];
-            
-            Invoke(nameof(StopVFX), duration);
         }
-        
+
         void StopVFX()
         {
-            CancelInvoke(nameof(StopVFX));
             isPlaying = false;
             spriteRenderer.enabled = false;
+            enabled = false;
             currentFrame = 0;
         }
     }

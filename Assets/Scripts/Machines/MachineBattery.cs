@@ -45,8 +45,11 @@ namespace AstroPioneer.Machines
             currentCharge = Mathf.Max(0, currentCharge - amount);
         }
 
-        void Start()
+        void OnEnable()
         {
+            // Reset charge when placed/spawned from pool
+            currentCharge = 0f;
+            
             TryRegisterOnGrid();
             if (PowerManager.Instance != null)
             {
@@ -55,7 +58,7 @@ namespace AstroPioneer.Machines
             }
         }
 
-        void OnDestroy()
+        void OnDisable()
         {
             if (PowerManager.Instance != null)
             {
@@ -66,10 +69,7 @@ namespace AstroPioneer.Machines
 
         private void TryRegisterOnGrid()
         {
-            if (GridManager.Instance == null) return;
-            Vector2Int pos = GridManager.Instance.WorldToGridPosition(transform.position);
-            if (!GridManager.Instance.GetOccupiedCells().ContainsKey(pos))
-                GridManager.Instance.TryOccupyCell(pos, gameObject);
+            // Grid registration is now managed DOD-wide by PlacementManager/ChunkManager
         }
     }
 }

@@ -1,0 +1,2 @@
+     ui_play_button    Play Game
+     ui_farm_name    Astro Farm

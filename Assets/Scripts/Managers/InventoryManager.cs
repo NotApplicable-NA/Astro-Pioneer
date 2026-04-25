@@ -2,6 +2,7 @@ using UnityEngine;
 using System;
 using System.Collections.Generic;
 using AstroPioneer.Data;
+using AstroPioneer.Core;
 
 namespace AstroPioneer.Managers
 {
@@ -29,7 +30,7 @@ namespace AstroPioneer.Managers
 
         void Awake()
         {
-            if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+            if (Instance != null && Instance != this) { Destroy(this); return; }
             Instance = this;
 
             slots = new List<InventorySlot>(slotCount);
@@ -37,7 +38,18 @@ namespace AstroPioneer.Managers
                 slots.Add(new InventorySlot(null, 0));
         }
 
-        void Start()
+        void OnDestroy()
+        {
+            if (Instance == this) Instance = null;
+        }
+
+        void Start() { } // Starter items now triggered by SaveGameManager after LoadGame()
+
+        /// <summary>
+        /// Give the configured starter kit to the player.
+        /// Only called by SaveGameManager on a confirmed new/reset game session.
+        /// </summary>
+        public void GiveStarterItems()
         {
             foreach (var item in starterItems)
             {
@@ -211,6 +223,16 @@ namespace AstroPioneer.Managers
         {
             foreach (var slot in slots) slot.Clear();
             OnInventoryUpdated?.Invoke();
+        }
+
+        /// <summary>
+        /// Dev-only: wipes all slots in memory.
+        /// Starter re-trigger is controlled by SaveGameManager._starterItemsGiven flag.
+        /// </summary>
+        public void ClearAndResetForNewGame()
+        {
+            ClearInventory();
+            Debug.Log("[InventoryManager] Inventory cleared for new game.");
         }
 
         // ─── Helpers ───

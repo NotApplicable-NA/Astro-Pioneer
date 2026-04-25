@@ -1,5 +1,6 @@
 using UnityEngine;
 using System.Collections.Generic;
+using AstroPioneer.Core;
 
 namespace AstroPioneer.Managers
 {
@@ -32,11 +33,17 @@ namespace AstroPioneer.Managers
         {
             if (Instance != null && Instance != this)
             {
-                Destroy(gameObject);
+                Destroy(this);
                 return;
             }
             Instance = this;
+            transform.SetParent(null);
             DontDestroyOnLoad(gameObject);
+        }
+
+        void OnDestroy()
+        {
+            if (Instance == this) { Instance = null; ServiceLocator.Unregister<TechTreeManager>(); }
         }
 
         public void AddResearchPoints(int amount)
@@ -46,7 +53,15 @@ namespace AstroPioneer.Managers
 
         public bool UnlockTech(string techID)
         {
-            TechNode node = techNodes.Find(n => n.techID == techID);
+            TechNode node = null;
+            foreach (var candidate in techNodes)
+            {
+                if (candidate.techID == techID)
+                {
+                    node = candidate;
+                    break;
+                }
+            }
             if (node == null) return false;
 
             if (node.isUnlocked) return true;
@@ -54,7 +69,15 @@ namespace AstroPioneer.Managers
             // Check prerequisites
             foreach (var req in node.prerequisites)
             {
-                TechNode preReqNode = techNodes.Find(n => n.techID == req);
+                TechNode preReqNode = null;
+                foreach (var candidate in techNodes)
+                {
+                    if (candidate.techID == req)
+                    {
+                        preReqNode = candidate;
+                        break;
+                    }
+                }
                 if (preReqNode == null || !preReqNode.isUnlocked)
                 {
                     return false;

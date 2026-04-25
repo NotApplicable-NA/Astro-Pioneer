@@ -1,49 +1,97 @@
 using UnityEngine;
 using AstroPioneer.Data;
 using AstroPioneer.Managers;
+using AstroPioneer.Interfaces;
+using AstroPioneer.Core;
 
 namespace AstroPioneer.Machines
 {
     /// <summary>
     /// AgriMech — Mobile farming machine that traverses horizontally across the grid,
     /// planting crops on every cell it passes over.
+    /// 
+    /// Classified as ENTITY (not Structure) because it moves freely.
+    /// Reads grid data beneath it via EntityManager.GetGridBelowEntity().
     /// </summary>
-    public class AgriMech : MonoBehaviour
+    [RequireComponent(typeof(Rigidbody2D))]
+    public class AgriMech : MonoBehaviour, IEntity, IGridInteractable
     {
         [Header("Settings")]
         public Vector2Int dimensions = new Vector2Int(2, 2);
 
+        [Header("Entity Setup")]
+        [Tooltip("The index of this prefab in the EntityRegistry")]
+        public int registryTypeID = 0;
+
         [Header("Farming")]
-        public CropData cropData;
+        public CropStructureData cropData;
 
         [Header("Movement")]
         public float moveInterval = 1f;
-        public int direction = 1; // 1 = Right, -1 = Left
+        public int roamRadius = 5; // Distance it can roam from its starting point
+        public int direction = 1; // 0=Up, 1=Right, 2=Down, 3=Left
 
         [Header("Runtime")]
-        public Vector2Int currentGridPos;
         public bool isInitialized;
+        private Vector2Int originGridPos;
 
         private float moveTimer;
+        private string entityID;
+        private Rigidbody2D rb;
 
-        public void Initialize(Vector2Int spawnPos)
+        // ─── IEntity Implementation ───
+        public Vector3 WorldPosition => transform.position;
+        public string EntityID => entityID;
+        public int EntityTypeID => registryTypeID;
+
+        void Awake()
         {
-            currentGridPos = spawnPos;
+            entityID = $"AgriMech_{System.Guid.NewGuid():N}";
+            rb = GetComponent<Rigidbody2D>();
+
+            // Top-down game: disable gravity and use Kinematic body.
+            // Movement is driven by rb.MovePosition(), not physics forces.
+            if (rb != null)
+            {
+                rb.gravityScale = 0f;
+                rb.bodyType = RigidbodyType2D.Kinematic;
+                rb.interpolation = RigidbodyInterpolation2D.Interpolate;
+                rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+            }
+        }
+
+        void OnEnable()
+        {
+            if (ServiceLocator.TryGet<EntityManager>(out var em))
+                em.Register(this);
+        }
+
+        void OnDisable()
+        {
+            if (ServiceLocator.TryGet<EntityManager>(out var em))
+                em.Unregister(this);
+        }
+
+        public void Initialize(Vector3 spawnWorldPos)
+        {
+            transform.position = spawnWorldPos;
+            if (rb != null) rb.position = spawnWorldPos;
+            originGridPos = EntityManager.GetGridBelowEntity(spawnWorldPos);
             isInitialized = true;
-            UpdateVisualPosition();
+            PickRandomDirection();
         }
 
         public void Interact(InventoryItem item)
         {
             if (item != null && item.type == ItemType.Seed)
-                cropData = item.plantData;
+                cropData = item.placedStructure as CropStructureData;
         }
 
-        void Update()
+        void FixedUpdate()
         {
-            if (!isInitialized || cropData == null) return;
+            if (!isInitialized || cropData == null || rb == null) return;
 
-            moveTimer += Time.deltaTime;
+            moveTimer += Time.fixedDeltaTime;
             if (moveTimer >= moveInterval)
             {
                 moveTimer = 0f;
@@ -55,73 +103,89 @@ namespace AstroPioneer.Machines
 
         private void MoveMachine()
         {
-            if (GridManager.Instance == null) return;
+            Vector2 currentPos = rb.position;
+            Vector2 dirVec = GetDirectionVector();
+            Vector2 nextPos2D = currentPos + dirVec * 1f;
+            Vector3 nextWorldPos = new Vector3(nextPos2D.x, nextPos2D.y, transform.position.z);
 
-            Vector2Int nextPos = currentGridPos + new Vector2Int(direction, 0);
+            Vector2Int nextGridPos = EntityManager.GetGridBelowEntity(nextWorldPos);
+            
+            // Check if bounds exceeded (e.g. 10x10 area means +/- 5 from origin)
+            bool outOfRoamBounds = Mathf.Abs(nextGridPos.x - originGridPos.x) > roamRadius || 
+                                   Mathf.Abs(nextGridPos.y - originGridPos.y) > roamRadius;
 
-            if (IsBlocked(nextPos))
+            // Turn around if hitting boundary or an obstacle
+            if (outOfRoamBounds || (GridManager.Instance != null && !GridManager.Instance.IsPositionAvailable(nextGridPos)))
             {
-                direction *= -1;
+                PickRandomDirection();
                 return;
             }
 
-            ReleaseOccupiedCells();
-            currentGridPos = nextPos;
-            UpdateVisualPosition();
-            OccupyCurrentCells();
+            rb.MovePosition(nextPos2D);
             PlantCropsAtCurrentPosition();
         }
 
-        private bool IsBlocked(Vector2Int origin)
+        private void PickRandomDirection()
         {
-            for (int x = 0; x < dimensions.x; x++)
-                for (int y = 0; y < dimensions.y; y++)
-                    if (!GridManager.Instance.IsValidGridPosition(origin + new Vector2Int(x, y)))
-                        return true;
-            return false;
+            direction = UnityEngine.Random.Range(0, 4);
         }
 
-        private void ReleaseOccupiedCells()
+        private Vector2 GetDirectionVector()
         {
-            ForEachCell(currentGridPos, cell =>
+            switch (direction)
             {
-                if (GridManager.Instance.GetOccupantAt(cell) == gameObject)
-                    GridManager.Instance.ReleaseCell(cell);
-            });
-        }
-
-        private void OccupyCurrentCells()
-        {
-            ForEachCell(currentGridPos, cell =>
-            {
-                if (GridManager.Instance.GetOccupantAt(cell) == null)
-                    GridManager.Instance.TryOccupyCell(cell, gameObject);
-            });
+                case 0: return Vector2.up;
+                case 1: return Vector2.right;
+                case 2: return Vector2.down;
+                case 3: return Vector2.left;
+                default: return Vector2.right;
+            }
         }
 
         private void PlantCropsAtCurrentPosition()
         {
             if (cropData == null || CropManager.Instance == null) return;
 
-            ForEachCell(currentGridPos, cell =>
+            // Read the grid beneath each cell of the mech's footprint
+            Vector2Int baseGrid = EntityManager.GetGridBelowEntity(transform.position);
+            for (int x = 0; x < dimensions.x; x++)
             {
-                if (CropManager.Instance.GetCropAt(cell) == null)
-                    CropManager.Instance.PlantCrop(cell, cropData);
-            });
+                for (int y = 0; y < dimensions.y; y++)
+                {
+                    Vector2Int cell = baseGrid + new Vector2Int(x, y);
+                    if (CropManager.Instance.GetCropAt(cell) == 0)
+                        CropManager.Instance.PlantCrop(cell, cropData);
+                }
+            }
+        }
+
+        // ─── IEntity Callbacks ───
+
+        public void OnChunkEntered(ChunkCoord newChunk) { }
+        public void OnChunkExited(ChunkCoord oldChunk) { }
+
+        public void SerializeState(System.IO.BinaryWriter writer)
+        {
+            writer.Write(transform.position.x);
+            writer.Write(transform.position.y);
+            writer.Write((byte)direction);
+            writer.Write(isInitialized);
+        }
+
+        public void DeserializeState(System.IO.BinaryReader reader)
+        {
+            float x = reader.ReadSingle();
+            float y = reader.ReadSingle();
+            Vector3 pos = new Vector3(x, y, 0);
+            transform.position = pos;
+            if (rb != null) rb.position = pos;
+            direction = reader.ReadByte();
+            if (direction < 0 || direction > 3) PickRandomDirection();
+            originGridPos = EntityManager.GetGridBelowEntity(pos);
+            isInitialized = reader.ReadBoolean();
         }
 
         // ─── Helpers ───
-
-        public void UpdateVisualPosition()
-        {
-            if (!isInitialized || GridManager.Instance == null) return;
-
-            float cSize = GridManager.Instance.CellSize;
-            Vector3 corner = GridManager.Instance.GridOrigin +
-                new Vector3(currentGridPos.x * cSize, currentGridPos.y * cSize, 0);
-            Vector3 center = new Vector3(dimensions.x * 0.5f * cSize, dimensions.y * 0.5f * cSize, 0);
-            transform.position = corner + center;
-        }
 
         private void ForEachCell(Vector2Int origin, System.Action<Vector2Int> action)
         {

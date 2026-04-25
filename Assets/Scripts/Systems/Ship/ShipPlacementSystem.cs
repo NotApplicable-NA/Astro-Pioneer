@@ -24,6 +24,7 @@ namespace AstroPioneer.Systems.Ship
         // Current placement state
         private GameObject ghostPreview;
         private SpriteRenderer ghostRenderer;
+        private Camera cachedMainCamera;
         private GameObject prefabToPlace;
         private Vector2Int objectSize = Vector2Int.one;
         private FacingDirection currentDirection = FacingDirection.South;
@@ -44,6 +45,7 @@ namespace AstroPioneer.Systems.Ship
                 return;
             }
             Instance = this;
+            cachedMainCamera = Camera.main;
         }
 
         void OnDestroy()
@@ -56,7 +58,9 @@ namespace AstroPioneer.Systems.Ship
             if (!isPlacing || ghostPreview == null) return;
 
             // Update ghost position
-            Vector3 mouseWorld = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+            if (cachedMainCamera == null) cachedMainCamera = Camera.main;
+            if (cachedMainCamera == null) return;
+            Vector3 mouseWorld = cachedMainCamera.ScreenToWorldPoint(Input.mousePosition);
             mouseWorld.z = 0;
 
             if (ShipGrid.Instance != null)

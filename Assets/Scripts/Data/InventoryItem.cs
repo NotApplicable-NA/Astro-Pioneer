@@ -6,7 +6,6 @@ namespace AstroPioneer.Data
     public class InventoryItem : ScriptableObject
     {
         [Header("Item Details")]
-        public string id;
         public string displayName;
         [TextArea] public string description;
         public Sprite icon;
@@ -15,24 +14,37 @@ namespace AstroPioneer.Data
         public bool isStackable = true;
         public int maxStackSize = 64;
         
+        [Header("Grid Layering")]
+        [Tooltip("If true, placed on the utility Micro-Grid (e.g. cables, pipes) instead of the Macro-Grid.")]
+        public bool isMicroGridItem = false;
+
+        [Header("Entity (V23)")]
+        [Tooltip("If true, this is a free-moving entity (Bot, Vehicle) — NOT a grid structure. Spawned via EntityManager, NOT written to chunk data.")]
+        public bool isEntity = false;
+        
         [Header("Type")]
         public ItemType type;
 
+        [Header("Tool Behaviour (V22 Strategy Pattern)")]
+        [Tooltip("Drag a ToolBehaviour ScriptableObject here. Only used when type == Tool.")]
+        public ToolBehaviour toolAction;
+        
+        [Header("Data-Driven Architecture (V20)")]
+        [Tooltip("The StructureData associated with this item. Replaces legacy Prefab, CropData, and manual ID.")]
+        public StructureData placedStructure;
+        
         [Header("Economy")]
         [Tooltip("Credits received when selling this item")]
         public int sellPrice = 10;
         [Tooltip("Credits required to buy this item (0 = not buyable)")]
         public int buyPrice = 0;
 
-        [Header("Seed Data (only used if type == Seed)")]
-        [Tooltip("The CropData to plant when this seed item is used.")]
-        public CropData plantData;
-
-        [Header("Placement Data (only used if type == Crafted)")]
-        [Tooltip("Prefab to instantiate when placed on the grid.")]
-        public GameObject placeablePrefab;
-        [Tooltip("Grid space occupied by this object (e.g. 1x1, 2x2, 3x3)")]
-        public Vector2Int dimensions = Vector2Int.one;
+        /// <summary>
+        /// Gets the dynamic auto-ID from the StructureRegistry. Returns 0 if not found.
+        /// </summary>
+        public ushort StructureID => placedStructure != null && StructureRegistry.Instance != null 
+            ? StructureRegistry.Instance.GetID(placedStructure) 
+            : AstroPioneer.Core.GameConstants.STRUCTURE_EMPTY;
     }
 
     public enum ItemType

@@ -20,6 +20,7 @@ namespace AstroPioneer.Machines
         private SpriteRenderer spriteRenderer;
         private int currentFrame = 0;
         private float frameTimer = 0f;
+        private float elapsedTime = 0f;
         private bool isPlaying = false;
         
         void Awake()
@@ -52,6 +53,13 @@ namespace AstroPioneer.Machines
         void Update()
         {
             if (!isPlaying) return;
+
+            elapsedTime += Time.deltaTime;
+            if (elapsedTime >= duration)
+            {
+                StopVFX();
+                return;
+            }
             
             // Animate sprite frames
             frameTimer += Time.deltaTime;
@@ -92,11 +100,10 @@ namespace AstroPioneer.Machines
             isPlaying = true;
             currentFrame = 0;
             frameTimer = 0f;
+            elapsedTime = 0f;
             spriteRenderer.enabled = true;
+            spriteRenderer.sprite = waterSprites[0];
             enabled = true;  // ✅ OPTIMIZATION: Enable Update() calls
-            
-            // Auto-stop setelah duration
-            Invoke(nameof(StopVFX), duration);
         }
         
         /// <summary>
@@ -104,7 +111,6 @@ namespace AstroPioneer.Machines
         /// </summary>
         public void StopVFX()
         {
-            CancelInvoke(nameof(StopVFX));  // ✅ FIXED: Clear pending invocations
             isPlaying = false;
             spriteRenderer.enabled = false;
             currentFrame = 0;

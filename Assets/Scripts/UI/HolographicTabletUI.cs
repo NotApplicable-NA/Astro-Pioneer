@@ -132,11 +132,14 @@ namespace AstroPioneer.UI
         private Texture2D fogTexture;
         private Color32[] fogPixels;
 
+        private Vector2Int localGridDims = new Vector2Int(128, 128);
+        private Vector3 localGridOrigin = new Vector3(-64, -64, 0);
+
         private void InitializeFogTexture()
         {
             if (GridManager.Instance == null || mapContainer == null) return;
 
-            var gridDims = GridManager.Instance.GridDimensions;
+            var gridDims = localGridDims;
 
             // Create RawImage for smooth fog if missing
             if (fogOverlay == null)
@@ -156,11 +159,17 @@ namespace AstroPioneer.UI
             // Init Texture matching grid dimensions (low res + bilinear = smooth)
             if (fogTexture == null || fogTexture.width != gridDims.x)
             {
-                fogTexture = new Texture2D(gridDims.x, gridDims.y, TextureFormat.RGBA32, false);
+                fogTexture = new Texture2D(gridDims.x, gridDims.y);
                 fogTexture.filterMode = FilterMode.Bilinear; // IMPORTANT: This makes it smooth!
                 fogTexture.wrapMode = TextureWrapMode.Clamp;
                 fogOverlay.texture = fogTexture;
                 fogPixels = new Color32[gridDims.x * gridDims.y];
+                for (int i = 0; i < fogPixels.Length; i++)
+                {
+                    fogPixels[i] = new Color32(0, 0, 0, 200); // Start black (fogged)
+                }
+                fogTexture.SetPixels32(fogPixels);
+                fogTexture.Apply();
             }
         }
 
@@ -182,14 +191,16 @@ namespace AstroPioneer.UI
             UpdateFogTexture();
 
             // Periodic check for new POIs
-            GameObject player = GameObject.FindGameObjectWithTag("Player");
-            if (player != null && GridManager.Instance != null)
+            if (cachedPlayerTransform == null && AstroPioneer.Player.PlayerToolState.Instance != null)
+                cachedPlayerTransform = AstroPioneer.Player.PlayerToolState.Instance.transform;
+
+            if (cachedPlayerTransform != null && GridManager.Instance != null)
             {
-                Vector2Int currentCell = GridManager.Instance.WorldToGridPosition(player.transform.position);
+                Vector2Int currentCell = GridManager.Instance.WorldToGridPosition(cachedPlayerTransform.position);
                 if (currentCell != lastPlayerCell)
                 {
                     lastPlayerCell = currentCell;
-                    var tracker = player.GetComponent<AstroPioneer.Systems.Exploration.ExplorationTracker>();
+                    var tracker = cachedPlayerTransform.GetComponent<AstroPioneer.Systems.Exploration.ExplorationTracker>();
                     if (tracker != null) tracker.ForceReveal();
                     RefreshMap(); // Update POIs
                 }
@@ -198,6 +209,8 @@ namespace AstroPioneer.UI
 
         private Dictionary<Vector2Int, GameObject> poiIcons = new Dictionary<Vector2Int, GameObject>();
         private GameObject playerMarker;
+        private Transform cachedPlayerTransform;
+        private Vector2 playerMarkerVelocity;
 
         private void ClearAllIcons()
         {
@@ -210,7 +223,7 @@ namespace AstroPioneer.UI
         {
             if (fogTexture == null || GridManager.Instance == null) return;
 
-            var dims = GridManager.Instance.GridDimensions;
+            var dims = localGridDims;
             bool changed = false;
 
             for (int y = 0; y < dims.y; y++)
@@ -218,7 +231,8 @@ namespace AstroPioneer.UI
                 for (int x = 0; x < dims.x; x++)
                 {
                     int index = y * dims.x + x;
-                    bool explored = GridManager.Instance.IsCellExplored(new Vector2Int(x, y));
+                    Vector2Int worldPos = new Vector2Int(x + (int)localGridOrigin.x, y + (int)localGridOrigin.y);
+                    bool explored = GridManager.Instance.IsCellExplored(worldPos);
                     
                     // Fog is black, explored is transparent
                     byte targetAlpha = explored ? (byte)0 : (byte)200;
@@ -247,8 +261,7 @@ namespace AstroPioneer.UI
         {
             if (GridManager.Instance == null) return;
 
-            var gridDims = GridManager.Instance.GridDimensions;
-            var occupied = GridManager.Instance.GetOccupiedCells();
+            var gridDims = localGridDims;
 
             float cellWidth = mapContainer.rect.width / gridDims.x;
             float cellHeight = mapContainer.rect.height / gridDims.y;
@@ -256,7 +269,8 @@ namespace AstroPioneer.UI
             // Player Marker
             if (playerMarker == null)
             {
-                playerMarker = CreateIcon(Vector2Int.zero, playerIcon, playerColor, cellWidth * 0.8f, cellHeight * 0.8f, false);
+                float pSize = Mathf.Max(cellWidth * 2f, 16f);
+                playerMarker = CreateIcon(Vector2Int.zero, playerIcon, playerColor, pSize, pSize, false);
                 playerMarker.transform.SetAsLastSibling(); // Player on top of fog
             }
 
@@ -265,16 +279,17 @@ namespace AstroPioneer.UI
             {
                 for (int y = 0; y < gridDims.y; y++)
                 {
-                    Vector2Int pos = new Vector2Int(x, y);
+                    Vector2Int pos = new Vector2Int(x + (int)localGridOrigin.x, y + (int)localGridOrigin.y);
                     bool isExplored = GridManager.Instance.IsCellExplored(pos);
 
                     if (isExplored)
                     {
-                        if (occupied.TryGetValue(pos, out GameObject occupant))
+                        ushort structureID = GridManager.Instance.GetStructureAt(pos);
+                        if (structureID != 0)
                         {
                             if (!poiIcons.ContainsKey(pos))
                             {
-                                RenderPOI(pos, occupant, cellWidth, cellHeight);
+                                RenderPOI(pos, structureID, cellWidth, cellHeight);
                             }
                         }
                     }
@@ -305,23 +320,22 @@ namespace AstroPioneer.UI
             }
         }
 
-        private void RenderPOI(Vector2Int pos, GameObject occupant, float w, float h)
+        private void RenderPOI(Vector2Int pos, ushort structureID, float w, float h)
         {
             Sprite iconSprite = machineIcon;
             Color iconColor = machineColor;
 
-            if (occupant.name.Contains("Crop"))
-            {
-                iconSprite = cropIcon;
-                iconColor = cropColor;
-            }
-            else if (occupant.name.Contains("Oxy"))
+            // Basic approximation based on DOD chunk masks:
+            if (structureID > 0)
             {
                 iconSprite = floraIcon;
                 iconColor = Color.magenta;
             }
 
-            GameObject poiObj = CreateIcon(pos, iconSprite, iconColor, w * 0.7f, h * 0.7f, false);
+            // Adjust pos to local map container pos
+            Vector2Int localPos = new Vector2Int(pos.x - (int)localGridOrigin.x, pos.y - (int)localGridOrigin.y);
+            float iconSize = Mathf.Max(w * 1.5f, 12f);
+            GameObject poiObj = CreateIcon(localPos, iconSprite, iconColor, iconSize, iconSize, false);
             poiIcons[pos] = poiObj;
         }
 
@@ -339,7 +353,7 @@ namespace AstroPioneer.UI
                 iconObj.transform.SetParent(mapContainer, false);
             }
 
-            var gridDims = GridManager.Instance.GridDimensions;
+            var gridDims = localGridDims;
             float cellW = mapContainer.rect.width / gridDims.x;
             float cellH = mapContainer.rect.height / gridDims.y;
 
@@ -375,12 +389,13 @@ namespace AstroPioneer.UI
         {
             if (playerMarker == null || GridManager.Instance == null) return;
 
-            GameObject player = GameObject.FindGameObjectWithTag("Player");
-            if (player == null) return;
+            if (cachedPlayerTransform == null && AstroPioneer.Player.PlayerToolState.Instance != null)
+                cachedPlayerTransform = AstroPioneer.Player.PlayerToolState.Instance.transform;
+            if (cachedPlayerTransform == null) return;
 
             // Use continuous exact float position instead of discrete grid position
-            Vector3 worldPos = player.transform.position;
-            Vector3 origin = GridManager.Instance.GridOrigin;
+            Vector3 worldPos = cachedPlayerTransform.position;
+            Vector3 origin = localGridOrigin;
             float cellSize = GridManager.Instance.CellSize;
             
             float exactX = (worldPos.x - origin.x) / cellSize;
@@ -388,8 +403,8 @@ namespace AstroPioneer.UI
 
             RectTransform rt = playerMarker.GetComponent<RectTransform>();
 
-            float cellW = mapContainer.rect.width / GridManager.Instance.GridDimensions.x;
-            float cellH = mapContainer.rect.height / GridManager.Instance.GridDimensions.y;
+            float cellW = mapContainer.rect.width / localGridDims.x;
+            float cellH = mapContainer.rect.height / localGridDims.y;
 
             Vector2 rawTargetPos = new Vector2(
                 exactX * cellW + cellW * 0.5f,
@@ -403,14 +418,15 @@ namespace AstroPioneer.UI
             );
             
             // If it's too far, snap it (e.g. initial load or teleport)
-            if (Vector2.Distance(rt.anchoredPosition, targetPos) > cellW * 3f)
+            float snapThresholdSq = (cellW * 3f) * (cellW * 3f);
+            if ((rt.anchoredPosition - targetPos).sqrMagnitude > snapThresholdSq)
             {
                 rt.anchoredPosition = targetPos;
             }
             else
             {
-                // Smooth follow
-                rt.anchoredPosition = Vector2.Lerp(rt.anchoredPosition, targetPos, Time.deltaTime * 15f);
+                // Smooth follow (Frame-Rate Independent)
+                rt.anchoredPosition = Vector2.SmoothDamp(rt.anchoredPosition, targetPos, ref playerMarkerVelocity, 0.1f);
             }
         }
     }

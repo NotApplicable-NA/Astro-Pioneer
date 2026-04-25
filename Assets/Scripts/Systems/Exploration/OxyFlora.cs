@@ -6,16 +6,15 @@ namespace AstroPioneer.Systems.Exploration
     /// <summary>
     /// Oxy-Flora: Oxygen-producing plant placeable on planet surfaces.
     /// GDD 3.5: Creates "oxygen oasis" zones that refill player O2 when nearby.
-    /// Requires sunlight — cannot grow in Shadow Canyons without UV Light Pillars.
+    /// V25: Fully Data-Driven. Registers Oasis with PlayerVitals mathematically, no Physics2D.
     /// </summary>
-    [RequireComponent(typeof(Collider2D))]
     public class OxyFlora : MonoBehaviour
     {
         [Header("Oxygen Production")]
         [Tooltip("O2 refill per second while player is in range")]
         [SerializeField] private float o2RefillRate = 3f;
 
-        [Tooltip("Radius of the oxygen oasis (trigger collider size)")]
+        [Tooltip("Radius of the oxygen oasis (math check)")]
         [SerializeField] private float oasisRadius = 2f;
 
         [Header("Growth")]
@@ -28,7 +27,6 @@ namespace AstroPioneer.Systems.Exploration
 
         [Header("State")]
         [SerializeField] private bool isGrown = false;
-        [SerializeField] private bool playerInRange = false;
 
         [Header("Visuals")]
         [SerializeField] private Sprite seedlingSprite;
@@ -50,15 +48,6 @@ namespace AstroPioneer.Systems.Exploration
 
         void Start()
         {
-            // Setup trigger collider for oasis zone
-            var col = GetComponent<Collider2D>();
-            if (col != null)
-            {
-                col.isTrigger = true;
-                if (col is CircleCollider2D circle)
-                    circle.radius = oasisRadius;
-            }
-
             // Start as seedling
             if (!isGrown)
             {
@@ -66,6 +55,12 @@ namespace AstroPioneer.Systems.Exploration
                     sr.sprite = seedlingSprite;
                 if (glowRenderer != null)
                     glowRenderer.enabled = false;
+            }
+            else
+            {
+                // If loaded already grown
+                if (PlayerVitals.Instance != null)
+                    PlayerVitals.Instance.RegisterOasis(transform.position, oasisRadius, o2RefillRate);
             }
         }
 
@@ -80,15 +75,12 @@ namespace AstroPioneer.Systems.Exploration
                     Grow();
                 }
             }
+        }
 
-            // O2 refill while player in range and plant is grown
-            if (isGrown && playerInRange)
-            {
-                if (PlayerVitals.Instance != null)
-                {
-                    PlayerVitals.Instance.RefillOxygen(o2RefillRate * Time.deltaTime);
-                }
-            }
+        void OnDestroy()
+        {
+            if (isGrown && PlayerVitals.Instance != null)
+                PlayerVitals.Instance.UnregisterOasis(transform.position);
         }
 
         // ── Growth ──────────────────────────────
@@ -104,6 +96,10 @@ namespace AstroPioneer.Systems.Exploration
             // Enable glow
             if (glowRenderer != null)
                 glowRenderer.enabled = true;
+
+            // Register Oasis for Data-Driven Distance Check
+            if (PlayerVitals.Instance != null)
+                PlayerVitals.Instance.RegisterOasis(transform.position, oasisRadius, o2RefillRate);
         }
 
         /// <summary>
@@ -113,24 +109,6 @@ namespace AstroPioneer.Systems.Exploration
         public void SetLightSource(bool hasLight)
         {
             hasLightSource = hasLight;
-        }
-
-        // ── Trigger ─────────────────────────────
-
-        void OnTriggerEnter2D(Collider2D other)
-        {
-            if (other.CompareTag("Player") && isGrown)
-            {
-                playerInRange = true;
-            }
-        }
-
-        void OnTriggerExit2D(Collider2D other)
-        {
-            if (other.CompareTag("Player"))
-            {
-                playerInRange = false;
-            }
         }
     }
 }

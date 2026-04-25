@@ -12,15 +12,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f4d6ea7a3e98598489d89be76b882835, type: 3}
   m_Name: Item_Hoe
   m_EditorClassIdentifier: 
-  id: Item_Hoe
-  displayName: Cangkul (Hoe)
-  description: A sturdy hoe for tilling soil and dismantling machines.
+  displayName: Item_Hoe
+  description: 
   icon: {fileID: 21300000, guid: 8d371d969802ccc4288a72f8b5b7265c, type: 3}
-  isStackable: 1
+  isStackable: 0
   maxStackSize: 1
+  isMicroGridItem: 0
   type: 1
-  sellPrice: 10
-  buyPrice: 10
-  plantData: {fileID: 0}
-  placeablePrefab: {fileID: 0}
-  dimensions: {x: 1, y: 1}
+  toolAction: {fileID: 11400000, guid: 7ba3cffbf61c4e143aa50d3c1faa6456, type: 2}
+  placedStructure: {fileID: 0}
+  sellPrice: 0
+  buyPrice: 20

@@ -1,5 +1,6 @@
 using UnityEngine;
 using System;
+using AstroPioneer.Core;
 
 namespace AstroPioneer.Managers
 {
@@ -23,9 +24,16 @@ namespace AstroPioneer.Managers
 
         void Awake()
         {
-            if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+            if (Instance != null && Instance != this) { Destroy(this); return; }
             Instance = this;
+            transform.SetParent(null);
             DontDestroyOnLoad(gameObject);
+            ServiceLocator.Register(this);
+        }
+
+        void OnDestroy()
+        {
+            if (Instance == this) { Instance = null; ServiceLocator.Unregister<EcoTracker>(); }
         }
 
         public void AddEcoScore(float amount)
@@ -46,12 +54,6 @@ namespace AstroPioneer.Managers
             }
         }
 
-#if UNITY_EDITOR
-        void OnValidate()
-        {
-            if (Application.isPlaying && !hasTriggeredEndGame)
-                CheckEndGameConditions();
-        }
-#endif
+
     }
 }

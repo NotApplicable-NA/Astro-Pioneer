@@ -1,4 +1,5 @@
 using UnityEngine;
+using AstroPioneer.Core;
 
 namespace AstroPioneer.Managers
 {
@@ -13,12 +14,19 @@ namespace AstroPioneer.Managers
         {
             if (Instance != null && Instance != this)
             {
-                Destroy(gameObject);
+                Destroy(this);
                 return;
             }
             Instance = this;
+            transform.SetParent(null);
             DontDestroyOnLoad(gameObject);
+            ServiceLocator.Register(this);
             LoadSettings();
+        }
+
+        void OnDestroy()
+        {
+            if (Instance == this) { Instance = null; ServiceLocator.Unregister<SettingsManager>(); }
         }
 
         public void SetMasterVolume(float vol)

@@ -2,130 +2,251 @@ using UnityEngine;
 using System.Collections.Generic;
 using AstroPioneer.Data;
 using AstroPioneer.Systems;
+using AstroPioneer.Core;
 
 namespace AstroPioneer.Managers
 {
     /// <summary>
-    /// CropManager — Singleton that manages the crop lifecycle:
-    /// planting, tracking, watering, and removal.
+    /// CropManager — Static Data-Oriented Manager for Crops.
+    /// Modifies grid data via GridManager. It does NOT spawn GameObjects.
+    /// Visuals are handled automatically by ChunkRenderer based on structure/metadata IDs.
     /// </summary>
     public class CropManager : MonoBehaviour
     {
         public static CropManager Instance { get; private set; }
         
-        [Header("Crop Prefab")]
-        [SerializeField] private GameObject cropPrefab;
-        
-        private readonly Dictionary<Vector2Int, CropInstance> activeCrops = new Dictionary<Vector2Int, CropInstance>();
-        
         void Awake()
         {
-            if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+            if (Instance != null && Instance != this) { Destroy(this); return; }
             Instance = this;
+        }
+
+        void Start()
+        {
+            if (TimeManager.Instance != null)
+                TimeManager.Instance.OnDayChanged += HandleDayChanged;
+                
+            if (ServiceLocator.TryGet<ChunkManager>(out var cm))
+                cm.OnChunkLoadedEvent += HandleChunkLoaded;
+        }
+
+        void OnDestroy()
+        {
+            if (Instance == this) 
+            {
+                Instance = null;
+                ServiceLocator.Unregister<CropManager>(); 
+            }
+            if (TimeManager.Instance != null)
+                TimeManager.Instance.OnDayChanged -= HandleDayChanged;
+                
+            if (ServiceLocator.TryGet<ChunkManager>(out var cm))
+                cm.OnChunkLoadedEvent -= HandleChunkLoaded;
+        }
+
+        private void HandleChunkLoaded(Chunk chunk)
+        {
+            if (TimeManager.Instance == null) return;
+            
+            int currentDay = TimeManager.Instance.DaysPassed;
+            int daysMissed = currentDay - chunk.LastSimulatedDay;
+
+            if (daysMissed > 0)
+            {
+                bool anyChange = false;
+                for (int x = 0; x < GameConstants.CHUNK_SIZE; x++)
+                {
+                    for (int y = 0; y < GameConstants.CHUNK_SIZE; y++)
+                    {
+                        ushort id = chunk.StructureLayer.Get(x, y);
+                        if (id > 0 && StructureRegistry.Instance != null && StructureRegistry.Instance.IsCrop(id))
+                        {
+                            byte meta = chunk.MetadataLayer.Get(x, y);
+                            bool isWatered = (meta & GameConstants.META_WATERED_FLAG) != 0;
+                            
+                            // For offline simulation, we only process 1 day of growth because 
+                            // the watered status is consumed after 1 day.
+                            if (isWatered)
+                            {
+                                byte stage = (byte)(meta & GameConstants.META_GROWTH_MASK);
+                                byte daysAccumulated = (byte)((meta >> 4) & 0x07);
+                                
+                                var data = StructureRegistry.Instance.Get(id) as CropStructureData;
+                                if (data != null && stage < 3)
+                                {
+                                    daysAccumulated++;
+                                    if (daysAccumulated >= data.daysToGrowPerStage[stage])
+                                    {
+                                        stage++;
+                                        daysAccumulated = 0;
+                                    }
+                                }
+                                
+                                byte newMeta = (byte)((stage & 0x0F) | ((daysAccumulated & 0x07) << 4));
+                                chunk.MetadataLayer.Set(x, y, newMeta);
+                                anyChange = true;
+                            }
+                        }
+                    }
+                }
+                
+                // Update chunk's last simulated day so it doesn't catch up again today
+                chunk.LastSimulatedDay = currentDay;
+                if (anyChange) chunk.IsDirty = true;
+            }
+        }
+
+        private void HandleDayChanged(int currentDay)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return;
+
+            // Iterate over all active chunks and update crops
+            foreach (var kvp in cm.ActiveChunks)
+            {
+                var chunk = kvp.Value;
+                for (int x = 0; x < GameConstants.CHUNK_SIZE; x++)
+                {
+                    for (int y = 0; y < GameConstants.CHUNK_SIZE; y++)
+                    {
+                        ushort id = chunk.StructureLayer.Get(x, y);
+                        // Use category-based check instead of hardcoded ID range
+                        if (id > 0 && StructureRegistry.Instance != null && StructureRegistry.Instance.IsCrop(id))
+                        {
+                            byte meta = chunk.MetadataLayer.Get(x, y);
+                            bool isWatered = (meta & GameConstants.META_WATERED_FLAG) != 0;
+                            
+                            // If watered, advance growth stage
+                            if (isWatered)
+                            {
+                                byte stage = (byte)(meta & GameConstants.META_GROWTH_MASK);
+                                byte daysAccumulated = (byte)((meta >> 4) & 0x07); // bits 4-6 store days in stage
+                                
+                                var data = StructureRegistry.Instance.Get(id) as CropStructureData;
+                                if (data != null && stage < 3)
+                                {
+                                    daysAccumulated++;
+                                    
+                                    // Check if current stage growth is complete
+                                    if (daysAccumulated >= data.daysToGrowPerStage[stage])
+                                    {
+                                        stage++;
+                                        daysAccumulated = 0;
+                                    }
+                                }
+                                
+                                // Pack new metadata: [Stage 0-3] | [Days 4-6]
+                                // Note: META_WATERED_FLAG (bit 7) is cleared automatically here
+                                byte newMeta = (byte)((stage & 0x0F) | ((daysAccumulated & 0x07) << 4));
+                                chunk.MetadataLayer.Set(x, y, newMeta);
+                                chunk.IsDirty = true;
+                                
+                                // Trigger visual update
+                                if (ServiceLocator.TryGet<ChunkRenderer>(out var renderer))
+                                    renderer.UpdateVisualMetadata((int)chunk.Coord.WorldOriginX + x, (int)chunk.Coord.WorldOriginY + y);
+                            }
+                        }
+                    }
+                }
+            }
         }
         
         /// <summary>
-        /// Plants a crop at the given grid position. Always registers in activeCrops;
-        /// grid cell occupancy is best-effort (skipped silently if already occupied).
+        /// Plants a crop by setting its structureID in the Grid.
         /// </summary>
-        public bool PlantCrop(Vector2Int gridPos, CropData cropData)
+        public bool PlantCrop(Vector2Int gridPos, CropStructureData cropData)
         {
-            if (GridManager.Instance == null)
+            if (GridManager.Instance == null) return false;
+            
+            if (cropData == null)
             {
+                Debug.LogWarning($"[CropManager] Failed to plant at {gridPos}: CropStructureData is null!");
                 return false;
             }
 
-            // Instantiate crop object
-            GameObject cropObj = cropPrefab != null
-                ? Instantiate(cropPrefab)
-                : CreateFallbackCrop();
-            cropObj.name = $"Crop_{cropData.cropID}_{gridPos}";
+            ushort structureID = StructureRegistry.Instance.GetID(cropData);
 
-            CropInstance crop = cropObj.GetComponent<CropInstance>();
-            if (crop == null)
+            if (structureID == GameConstants.STRUCTURE_EMPTY)
             {
-                DestroyImmediate(cropObj);
+                Debug.LogWarning($"[CropManager] Failed to plant {cropData.displayName}: StructureID is 0! Make sure it is added to StructureRegistry.");
                 return false;
             }
 
-            // Initialize data & position before visual activation
-            crop.SetCropData(cropData);
-            crop.SetGridPosition(gridPos);
+            if (GridManager.Instance.TryPlaceStructure(gridPos, structureID))
+            {
+                // Stage 0, Unwatered
+                GridManager.Instance.SetMetadataAt(gridPos, 0); 
+                return true;
+            }
 
-            // Calculate deterministic world position aligned to grid bottom
-            Vector3 worldPos = GridManager.Instance.GridToWorldPosition(gridPos);
-            float yBottom = worldPos.y - (GridManager.Instance.CellSize * 0.5f);
-            float yPivotOffset = CalculatePivotOffset(cropData);
-            cropObj.transform.position = new Vector3(worldPos.x, yBottom + yPivotOffset, worldPos.z);
-
-            // Occupy grid cell if available (overlay-safe: skip silently if occupied)
-            if (GridManager.Instance.IsPositionAvailable(gridPos))
-                GridManager.Instance.TryOccupyCell(gridPos, cropObj);
-
-            activeCrops[gridPos] = crop;
-            return true;
-        }
-
-        public CropInstance GetCropAt(Vector2Int gridPos)
-        {
-            activeCrops.TryGetValue(gridPos, out CropInstance crop);
-            return crop;
+            Debug.LogWarning($"[CropManager] Failed to plant {cropData.displayName} at {gridPos}: Grid position already occupied or chunk not loaded.");
+            return false;
         }
 
         /// <summary>
-        /// Removes a crop from the registry and releases its grid cell.
+        /// Reads crop structure ID at a position. Returns 0 if none.
+        /// </summary>
+        public ushort GetCropAt(Vector2Int gridPos)
+        {
+            if (GridManager.Instance == null) return 0;
+            ushort id = GridManager.Instance.GetStructureAt(gridPos);
+            if (id > 0 && StructureRegistry.Instance != null && StructureRegistry.Instance.IsCrop(id)) return id;
+            return 0;
+        }
+
+        /// <summary>
+        /// Removes a crop from the grid layer.
         /// </summary>
         public void RemoveCrop(Vector2Int gridPos)
         {
-            if (!activeCrops.ContainsKey(gridPos)) return;
-
             if (GridManager.Instance != null)
-                GridManager.Instance.ReleaseCell(gridPos);
-
-            activeCrops.Remove(gridPos);
+            {
+                ushort id = GetCropAt(gridPos);
+                if (id != 0) GridManager.Instance.RemoveStructure(gridPos);
+            }
         }
         
-        public void WaterCropAt(Vector2Int gridPos) => GetCropAt(gridPos)?.WaterCrop();
-
-        /// <summary>
-        /// Returns a shallow copy of all active crops for iteration (e.g. saving).
-        /// </summary>
-        public Dictionary<Vector2Int, CropInstance> GetAllCrops()
+        public void WaterCropAt(Vector2Int gridPos)
         {
-            return new Dictionary<Vector2Int, CropInstance>(activeCrops);
+            if (GridManager.Instance == null) return;
+            ushort id = GetCropAt(gridPos);
+            if (id == 0) return; // Not a crop
+
+            byte meta = GridManager.Instance.GetMetadataAt(gridPos);
+            meta = (byte)(meta | GameConstants.META_WATERED_FLAG);
+            GridManager.Instance.SetMetadataAt(gridPos, meta);
+            
+            // Visual update
+            if (ServiceLocator.TryGet<ChunkRenderer>(out var renderer))
+                renderer.UpdateVisualMetadata(gridPos.x, gridPos.y);
         }
 
-        /// <summary>
-        /// Destroys all crop GameObjects and clears the registry.
-        /// Uses DestroyImmediate for same-frame cleanup during load.
-        /// </summary>
-        public void ClearAllCrops()
+        public bool TryHarvestCropAt(Vector2Int gridPos, out CropStructureData cropData)
         {
-            foreach (var crop in activeCrops.Values)
+            cropData = null;
+            if (GridManager.Instance == null) return false;
+            
+            ushort id = GetCropAt(gridPos);
+            if (id == 0) return false;
+            
+            byte meta = GridManager.Instance.GetMetadataAt(gridPos);
+            byte stage = (byte)(meta & GameConstants.META_GROWTH_MASK);
+            
+            if (stage >= 3)
             {
-                if (crop != null && crop.gameObject != null)
-                    DestroyImmediate(crop.gameObject);
+                // Harvest successful
+                if (StructureRegistry.Instance != null)
+                {
+                    StructureData data = StructureRegistry.Instance.Get(id);
+                    if (data is CropStructureData cropStr)
+                    {
+                        cropData = cropStr;
+                    }
+                }
+                
+                RemoveCrop(gridPos); // Plant is consumed on harvest
+                return true;
             }
-            activeCrops.Clear();
-        }
-
-        // ─── Helpers ───
-
-        private GameObject CreateFallbackCrop()
-        {
-            var obj = new GameObject();
-            obj.AddComponent<CropInstance>();
-            return obj;
-        }
-
-        private float CalculatePivotOffset(CropData cropData)
-        {
-            if (cropData?.growthStageSprites == null || cropData.growthStageSprites.Length == 0) return 0f;
-
-            Sprite s = cropData.growthStageSprites[0];
-            if (s == null) return 0f;
-
-            return (s.pivot.y / s.pixelsPerUnit) * 0.0625f;
+            return false;
         }
     }
 }

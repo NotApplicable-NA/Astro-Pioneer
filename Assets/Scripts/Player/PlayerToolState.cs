@@ -12,10 +12,14 @@ namespace AstroPioneer.Player
     /// <summary>
     /// PlayerToolState — Manages hotbar selection and dispatches grid click actions
     /// (planting, watering, harvesting, placing, destroying).
+    /// V22: Tool actions now use the Strategy Pattern via ToolBehaviour ScriptableObjects.
     /// </summary>
     public class PlayerToolState : MonoBehaviour
     {
         public static PlayerToolState Instance { get; private set; }
+
+        // Pre-allocated buffer for Physics2D NonAlloc queries (zero GC)
+        private static readonly Collider2D[] overlapBuffer = new Collider2D[16];
 
         public static event Action<int> OnHotbarSelectionChanged;
         public static event Action<ToolType> OnToolChanged;
@@ -25,27 +29,61 @@ namespace AstroPioneer.Player
         private int selectedHotbarIndex = -1;
 
         [Header("Fallback CropData")]
-        [SerializeField] private CropData spacePotatoData;
-        [SerializeField] private CropData neonCarrotData;
+        [SerializeField] private CropStructureData spacePotatoData;
+        [SerializeField] private CropStructureData neonCarrotData;
 
         [Header("VFX")]
-        [SerializeField] private WateringVFX wateringVFXPrefab;
         [SerializeField] private HarvestVFX harvestVFXPrefab;
-
-        private WateringVFX wateringVFX;
-        private HarvestVFX harvestVFX;
 
         void Awake()
         {
             if (Instance != null && Instance != this) { Destroy(gameObject); return; }
             Instance = this;
-
-            wateringVFX = FindOrInstantiate(wateringVFXPrefab, "WateringVFX_Instance");
-            harvestVFX = FindOrInstantiate(harvestVFXPrefab, "HarvestVFX_Instance");
         }
 
-        void OnEnable() => MouseInteractionSystem.OnGridCellClicked += HandleGridClick;
-        void OnDisable() => MouseInteractionSystem.OnGridCellClicked -= HandleGridClick;
+        void OnDestroy()
+        {
+            if (Instance == this) Instance = null;
+        }
+
+        /// <summary>
+        /// Reset tool state on scene load to prevent residual hotbar selection
+        /// from triggering placement/destruction at the player's spawn point.
+        /// </summary>
+        void Start()
+        {
+            selectedHotbarIndex = -1;
+            OnHotbarSelectionChanged?.Invoke(-1);
+            OnToolChanged?.Invoke(ToolType.None);
+            PlacementManager.Instance?.ClearPlacement();
+        }
+
+        void OnEnable() 
+        {
+            MouseInteractionSystem.OnGridCellClicked += HandleGridClick;
+            if (InventoryManager.Instance != null)
+                InventoryManager.Instance.OnInventoryUpdated += HandleInventoryUpdated;
+        }
+        
+        void OnDisable() 
+        {
+            MouseInteractionSystem.OnGridCellClicked -= HandleGridClick;
+            if (InventoryManager.Instance != null)
+                InventoryManager.Instance.OnInventoryUpdated -= HandleInventoryUpdated;
+        }
+
+        private void HandleInventoryUpdated()
+        {
+            if (selectedHotbarIndex >= 0)
+            {
+                var item = GetSelectedItem();
+                if (item == null)
+                {
+                    // Item was consumed completely, deselect to clear ghost
+                    SelectHotbarSlot(selectedHotbarIndex);
+                }
+            }
+        }
 
         void Update()
         {
@@ -63,6 +101,7 @@ namespace AstroPioneer.Player
                 selectedHotbarIndex = -1;
                 OnHotbarSelectionChanged?.Invoke(-1);
                 OnToolChanged?.Invoke(ToolType.None);
+                PlacementManager.Instance?.ClearPlacement();
                 return;
             }
 
@@ -89,52 +128,48 @@ namespace AstroPioneer.Player
         {
             var selectedItem = GetSelectedItem();
 
-            // 1. Hoe destruction (TODO: REMOVE BEFORE PUBLISH)
-            if (selectedItem != null && selectedItem.type == ItemType.Tool && selectedItem.id.ToLower().Contains("hoe"))
+            // 1. Tool with ToolBehaviour — execute BEFORE harvest check
+            //    (e.g., Hoe should destroy, not harvest)
+            if (selectedItem != null && selectedItem.type == ItemType.Tool && selectedItem.toolAction != null)
             {
-                if (TryHoeDestroy(gridPos)) return;
-            }
-
-            // 2. Harvest mature crops (any tool)
-            if (CropManager.Instance != null)
-            {
-                CropInstance crop = CropManager.Instance.GetCropAt(gridPos);
-                if (crop != null && crop.IsHarvestable())
+                if (selectedItem.toolAction.Execute(gridPos, selectedItem, selectedHotbarIndex))
                 {
-                    HarvestCrop(crop);
+                    if (selectedItem.toolAction.consumesItem)
+                        InventoryManager.Instance?.RemoveItemAt(selectedHotbarIndex, 1);
                     return;
                 }
             }
 
-            // 3. IGridInteractable (machines, storage)
-            GameObject occupant = GridManager.Instance.GetOccupantAt(gridPos);
-            if (occupant != null)
+            // 2. Harvest mature crops (any tool / bare hand)
+            if (CropManager.Instance != null && CropManager.Instance.TryHarvestCropAt(gridPos, out CropStructureData harvestedData))
             {
-                IGridInteractable interactable = occupant.GetComponent<IGridInteractable>()
-                    ?? occupant.GetComponentInParent<IGridInteractable>();
-                if (interactable != null) { interactable.Interact(selectedItem); return; }
+                if (harvestedData != null) HarvestCrop(gridPos, harvestedData);
+                return;
             }
 
-            // 4. Micro-grid interactables (pipes, fences)
-            foreach (var micro in GridManager.Instance.GetMicroOccupantsAt(gridPos))
+            // 3. Physics-based Check for Interactables (replaces GetOccupantAt)
+            Vector3 worldPos = GridManager.Instance.GridToWorldPosition(gridPos);
+            int hitCount = Physics2D.OverlapPointNonAlloc(worldPos, overlapBuffer);
+            
+            for (int i = 0; i < hitCount; i++)
             {
-                IGridInteractable interactable = micro.GetComponent<IGridInteractable>();
-                if (interactable != null) { interactable.Interact(selectedItem); return; }
+                var hit = overlapBuffer[i];
+                IGridInteractable interactable = hit.GetComponentInParent<IGridInteractable>();
+                if (interactable != null)
+                {
+                    interactable.Interact(selectedItem);
+                    return;
+                }
             }
 
             if (selectedItem == null) return;
 
-            // 5. Item-type actions
+            // 4. Item-type actions (Seed, Crafted)
             switch (selectedItem.type)
             {
                 case ItemType.Seed:
-                    CropData cropData = selectedItem.plantData ?? GetFallbackCropData(selectedItem);
+                    CropStructureData cropData = (selectedItem.placedStructure as CropStructureData) ?? GetFallbackCropData(selectedItem);
                     if (cropData != null) PlantCrop(gridPos, cropData);
-                    break;
-
-                case ItemType.Tool:
-                    if (!selectedItem.id.ToLower().Contains("hoe"))
-                        WaterCrop(gridPos);
                     break;
 
                 case ItemType.Crafted:
@@ -142,61 +177,14 @@ namespace AstroPioneer.Player
                         if (PlacementManager.Instance.TryPlace(gridPos))
                             InventoryManager.Instance?.RemoveItemAt(selectedHotbarIndex, 1);
                     break;
+
+                // ItemType.Tool is already handled above via ToolBehaviour
             }
         }
 
         // ─── Actions ───
 
-        private bool TryHoeDestroy(Vector2Int gridPos)
-        {
-            // Machine detection: occupant or footprint scan
-            MachineIDTag tag = null;
-            GameObject occupant = GridManager.Instance.GetOccupantAt(gridPos);
-
-            if (occupant != null) tag = occupant.GetComponent<MachineIDTag>();
-            if (tag == null) tag = MouseInteractionSystem.FindMachineAtCell(gridPos);
-
-            if (tag != null)
-            {
-                AstroPioneer.Machines.AgriMech mech = tag.GetComponent<AstroPioneer.Machines.AgriMech>();
-                Vector2Int basePos = mech != null ? mech.currentGridPos : tag.originGridPos;
-                int w = Mathf.RoundToInt(tag.dimensions.x == 0 ? 1 : tag.dimensions.x);
-                int h = Mathf.RoundToInt(tag.dimensions.y == 0 ? 1 : tag.dimensions.y);
-
-                for (int x = 0; x < w; x++)
-                    for (int y = 0; y < h; y++)
-                        GridManager.Instance.ReleaseCell(basePos + new Vector2Int(x, y));
-
-                Destroy(tag.gameObject);
-
-                if (EnclosureSystem.Instance != null && tag.itemID.Contains("Fence"))
-                    EnclosureSystem.Instance.ReevaluateEnclosuresAround(gridPos);
-
-                return true;
-            }
-
-            // Crop destruction
-            if (occupant == null && CropManager.Instance != null)
-            {
-                var c = CropManager.Instance.GetCropAt(gridPos);
-                if (c != null) occupant = c.gameObject;
-            }
-
-            if (occupant != null)
-            {
-                CropInstance crop = occupant.GetComponentInParent<CropInstance>();
-                if (crop != null)
-                {
-                    CropManager.Instance.RemoveCrop(gridPos);
-                    Destroy(crop.gameObject);
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private void PlantCrop(Vector2Int gridPos, CropData cropData)
+        private void PlantCrop(Vector2Int gridPos, CropStructureData cropData)
         {
             if (cropData == null || CropManager.Instance == null) return;
 
@@ -204,45 +192,22 @@ namespace AstroPioneer.Player
                 InventoryManager.Instance?.RemoveItemAt(selectedHotbarIndex, 1);
         }
 
-        private void WaterCrop(Vector2Int gridPos)
+        private void HarvestCrop(Vector2Int gridPos, CropStructureData data)
         {
-            if (CropManager.Instance == null) return;
-
-            CropInstance crop = CropManager.Instance.GetCropAt(gridPos);
-            if (crop == null) return;
-
-            crop.WaterCrop();
-
-            if (wateringVFX != null && GridManager.Instance != null)
-                wateringVFX.PlayAtPosition(GridManager.Instance.GridToWorldPosition(gridPos));
-        }
-
-        private void HarvestCrop(CropInstance crop)
-        {
-            CropData data = crop.GetCropData();
             if (data == null) return;
 
-            harvestVFX?.PlayAtPosition(crop.transform.position);
+            Vector3 worldPos = GridManager.Instance.GridToWorldPosition(gridPos);
+            if (harvestVFXPrefab != null && ObjectPoolManager.Instance != null)
+            {
+                var vfxObj = ObjectPoolManager.Instance.SpawnFromPool(Core.GameConstants.POOL_HARVEST_VFX, harvestVFXPrefab.gameObject, worldPos);
+                vfxObj.GetComponent<HarvestVFX>()?.PlayAtPosition(vfxObj.transform.position);
+            }
 
             if (InventoryManager.Instance != null && data.harvestItem != null)
                 InventoryManager.Instance.AddItem(data.harvestItem, data.harvestQuantity);
-
-            crop.Harvest();
         }
 
         // ─── Helpers ───
-
-        private T FindOrInstantiate<T>(T prefab, string name) where T : MonoBehaviour
-        {
-            T found = FindObjectOfType<T>();
-            if (found != null) return found;
-            if (prefab == null) return null;
-
-            GameObject obj = Instantiate(prefab.gameObject);
-            obj.name = name;
-            DontDestroyOnLoad(obj);
-            return obj.GetComponent<T>();
-        }
 
         private ToolType MapItemToToolType(InventoryItem item)
         {
@@ -250,8 +215,8 @@ namespace AstroPioneer.Player
             switch (item.type)
             {
                 case ItemType.Seed:
-                    if (item.plantData == spacePotatoData) return ToolType.Seed_SpacePotato;
-                    if (item.plantData == neonCarrotData) return ToolType.Seed_NeonCarrot;
+                    if (item.placedStructure == spacePotatoData) return ToolType.Seed_SpacePotato;
+                    if (item.placedStructure == neonCarrotData) return ToolType.Seed_NeonCarrot;
                     return ToolType.Seed_SpacePotato;
                 case ItemType.Tool:
                     return ToolType.WateringCan;
@@ -260,7 +225,7 @@ namespace AstroPioneer.Player
             }
         }
 
-        private CropData GetFallbackCropData(InventoryItem item)
+        private CropStructureData GetFallbackCropData(InventoryItem item)
         {
             if (item.displayName.Contains("Potato")) return spacePotatoData;
             if (item.displayName.Contains("Carrot")) return neonCarrotData;

@@ -15,12 +15,7 @@ namespace AstroPioneer.Systems
 
         void Start()
         {
-            if (GridManager.Instance != null)
-            {
-                Vector2Int pos = GridManager.Instance.WorldToGridPosition(transform.position);
-                if (!GridManager.Instance.GetOccupiedCells().ContainsKey(pos))
-                    GridManager.Instance.TryOccupyCell(pos, gameObject);
-            }
+            // Grid occupancy handled by DOD PlacementManager
         }
 
         void OnEnable() => MouseInteractionSystem.OnGridCellClicked += HandleGridClick;

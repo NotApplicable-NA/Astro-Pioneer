@@ -1,5 +1,7 @@
 using UnityEngine;
 using System;
+using System.Text;
+using AstroPioneer.Core;
 
 namespace AstroPioneer.Managers
 {
@@ -19,6 +21,7 @@ namespace AstroPioneer.Managers
         // Public Properties
         public float CurrentTime => currentTime;
         public int DaysPassed => daysPassed;
+        public float TotalGameSeconds => (daysPassed * 86400f) + (currentTime * 86400f);
         
         // Events
         public event Action<float> OnTimeChanged;
@@ -28,14 +31,20 @@ namespace AstroPioneer.Managers
         {
             if (Instance != null && Instance != this)
             {
-                Destroy(gameObject);
+                Destroy(this);
                 return;
             }
             Instance = this;
         }
 
+        void OnDestroy()
+        {
+            if (Instance == this) { Instance = null; ServiceLocator.Unregister<TimeManager>(); }
+        }
+
         // Throttling State
         private int lastMinuteCheck = -1;
+        private readonly StringBuilder timeBuffer = new StringBuilder(5);
 
         void Update()
         {
@@ -47,7 +56,7 @@ namespace AstroPioneer.Managers
             // Check for day rollover
             if (currentTime >= 1f)
             {
-                currentTime = 0f;
+                currentTime -= 1f;
                 daysPassed++;
                 OnDayChanged?.Invoke(daysPassed);
             }
@@ -68,7 +77,13 @@ namespace AstroPioneer.Managers
             float hours = currentTime * 24f;
             int h = Mathf.FloorToInt(hours);
             int m = Mathf.FloorToInt((hours - h) * 60f);
-            return $"{h:00}:{m:00}";
+            timeBuffer.Clear();
+            if (h < 10) timeBuffer.Append('0');
+            timeBuffer.Append(h);
+            timeBuffer.Append(':');
+            if (m < 10) timeBuffer.Append('0');
+            timeBuffer.Append(m);
+            return timeBuffer.ToString();
         }
 
         /// <summary>
@@ -89,6 +104,19 @@ namespace AstroPioneer.Managers
             
             currentTime = targetTime;
             lastMinuteCheck = -1; // Force update
+            OnTimeChanged?.Invoke(currentTime);
+        }
+
+        /// <summary>
+        /// Restores saved time and day from SaveGameManager.
+        /// </summary>
+        public void LoadTime(int savedDays, float savedTime)
+        {
+            daysPassed = savedDays;
+            currentTime = savedTime;
+            lastMinuteCheck = -1; // Force UI update
+
+            OnDayChanged?.Invoke(daysPassed);
             OnTimeChanged?.Invoke(currentTime);
         }
     }

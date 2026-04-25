@@ -142,7 +142,6 @@ namespace AstroPioneer.Editor
             }
 
             var item = ScriptableObject.CreateInstance<InventoryItem>();
-            item.id = id;
             item.displayName = displayName;
             item.description = description;
             item.type = type;

@@ -5,6 +5,7 @@ using System.Collections;
 using System.Collections.Generic;
 using AstroPioneer.Data;
 using AstroPioneer.Managers;
+using AstroPioneer.Player;
 
 namespace AstroPioneer.Systems.Exploration
 {
@@ -43,6 +44,7 @@ namespace AstroPioneer.Systems.Exploration
         private PlanetData currentPlanet;
         private List<GameObject> spawnedNodes = new List<GameObject>();
         private Vector3 lastExplorationPosition; // For Walk of Shame
+        private Transform playerTransform;
 
         // Events
         public event Action<PlanetData> OnLandingStarted;
@@ -65,6 +67,7 @@ namespace AstroPioneer.Systems.Exploration
                 return;
             }
             Instance = this;
+            transform.SetParent(null);
             DontDestroyOnLoad(gameObject);
         }
 
@@ -107,9 +110,10 @@ namespace AstroPioneer.Systems.Exploration
             }
 
             // Save last position for Walk of Shame
-            var player = GameObject.FindGameObjectWithTag("Player");
-            if (player != null)
-                lastExplorationPosition = player.transform.position;
+            if (playerTransform == null && PlayerToolState.Instance != null)
+                playerTransform = PlayerToolState.Instance.transform;
+            if (playerTransform != null)
+                lastExplorationPosition = playerTransform.position;
 
             StartCoroutine(ReturnToShipSequence());
             return true;

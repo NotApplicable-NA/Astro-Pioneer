@@ -1,5 +1,6 @@
 using UnityEngine;
 using System;
+using AstroPioneer.Core;
 using System.Collections.Generic;
 using AstroPioneer.Data;
 using AstroPioneer.Managers;
@@ -47,7 +48,7 @@ namespace AstroPioneer.Managers
         {
             if (Instance != null && Instance != this)
             {
-                Destroy(gameObject);
+                Destroy(this);
                 return;
             }
             Instance = this;
@@ -124,8 +125,7 @@ namespace AstroPioneer.Managers
                     if (grid.IsWithinBounds(pos) && grid.GetCellState(pos) == ShipCellState.Locked)
                     {
                         // Directly unlock via grid cell
-                        var cell = grid.GetCell(pos);
-                        if (cell != null) cell.state = ShipCellState.Empty;
+                        grid.SetCellState(pos, ShipCellState.Empty);
                     }
                 }
             }

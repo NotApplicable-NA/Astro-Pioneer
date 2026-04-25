@@ -8,43 +8,7 @@ using AstroPioneer.Systems;
 
 namespace AstroPioneer.Managers
 {
-    #region Save Data Structures
-
-    [System.Serializable]
-    public class MachineData
-    {
-        public string itemID;
-        public Vector2Int position;
-        public string cropID;
-        public string uniqueInstanceID;
-    }
-
-    [System.Serializable]
-    public class CropSaveData
-    {
-        public string cropID;
-        public Vector2Int position;
-        public int currentStage;
-        public bool isWatered;
-    }
-
-    [System.Serializable]
-    public class InventorySlotData
-    {
-        public int slotIndex;
-        public string itemID;
-        public int quantity;
-    }
-
-    [System.Serializable]
-    public class SaveData
-    {
-        public List<MachineData> machines = new List<MachineData>();
-        public List<CropSaveData> crops = new List<CropSaveData>();
-        public List<InventorySlotData> inventory = new List<InventorySlotData>();
-    }
-
-    #endregion
+// Removed legacy SaveData JSON structs. DOD architecture uses raw binary streams.
 
     /// <summary>
     /// SaveGameManager — Handles full game state serialization via PlayerPrefs.
@@ -54,22 +18,24 @@ namespace AstroPioneer.Managers
     {
         public static SaveGameManager Instance { get; private set; }
 
-        [Header("Registries")]
-        [Tooltip("All prefabs with MachineIDTag for spawning on load.")]
-        public List<GameObject> placeablePrefabs = new List<GameObject>();
-
-        [Tooltip("All CropData ScriptableObjects.")]
-        public List<CropData> allCropsRegistry = new List<CropData>();
-
-        [Tooltip("All InventoryItem ScriptableObjects.")]
-        public List<InventoryItem> allItemsRegistry = new List<InventoryItem>();
+        // Registries have been moved to the V20 Data-Driven system (e.g. StructureRegistry).
+        // SaveGameManager no longer manages asset lists directly.
 
         private const string SAVE_KEY = "AstroPioneer_SaveData";
 
+        // Runtime flag persisted to meta.dat — true means starter kit already given this save slot
+        private bool _starterItemsGiven = false;
+
         void Awake()
         {
-            if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+            if (Instance != null && Instance != this) { Destroy(this); return; }
             Instance = this;
+            Core.ServiceLocator.Register(this);
+        }
+
+        void OnDestroy()
+        {
+            if (Instance == this) { Instance = null; Core.ServiceLocator.Unregister<SaveGameManager>(); }
         }
 
         void Start() => LoadGame();
@@ -77,11 +43,38 @@ namespace AstroPioneer.Managers
 
         void Update()
         {
-            // Shift+K: Clear save data (check first to avoid triggering normal save)
+            // Shift+K: Full dev reset — clears memory, sets flag so next session gives starter items
             if (Input.GetKey(KeyCode.LeftShift) && Input.GetKeyDown(KeyCode.K))
             {
+                _starterItemsGiven = false;
+                AstroPioneer.Core.SaveSystem.DeleteAllSaves();
                 PlayerPrefs.DeleteKey(SAVE_KEY);
                 PlayerPrefs.Save();
+                if (InventoryManager.Instance != null)
+                    InventoryManager.Instance.ClearAndResetForNewGame();
+                // Re-save meta immediately with _starterItemsGiven = false.
+                // OnApplicationQuit will also call SaveGame(), but this ensures
+                // the flag is written even if the user quits via Alt+F4 or Editor Stop.
+                int seed = 0;
+                if (AstroPioneer.Core.ServiceLocator.TryGet<AstroPioneer.Core.ChunkManager>(out var cm2))
+                {
+                    seed = cm2.WorldSeed;
+                    cm2.ClearAllData(); // Force wipe memory chunks and visuals
+                }
+                if (AstroPioneer.Core.ServiceLocator.TryGet<AstroPioneer.Core.EntityManager>(out var em))
+                {
+                    em.ClearAllEntities();
+                }
+                
+                if (AstroPioneer.Machines.Automation.BotSimulationManager.Instance != null)
+                {
+                    // Cast to List to use Clear(), since GetAllBots() returns IReadOnlyList
+                    var bots = AstroPioneer.Machines.Automation.BotSimulationManager.Instance.GetAllBots() as System.Collections.Generic.List<AstroPioneer.Machines.Automation.BotData>;
+                    if (bots != null) bots.Clear();
+                }
+                
+                AstroPioneer.Core.SaveSystem.SaveMeta(seed, 1, 0, 0.25f, starterItemsGiven: false);
+                Debug.Log("[SaveGameManager] Full reset complete. Starter items will be given on next session.");
                 return;
             }
 
@@ -93,244 +86,148 @@ namespace AstroPioneer.Managers
 
         public void SaveGame()
         {
-            if (GridManager.Instance == null) return;
+            // 1. Save Metadata (including starter flag)
+            int seed = AstroPioneer.Core.ServiceLocator.TryGet<AstroPioneer.Core.ChunkManager>(out var cm) ? cm.WorldSeed : 0;
+            int days = AstroPioneer.Managers.TimeManager.Instance != null ? AstroPioneer.Managers.TimeManager.Instance.DaysPassed : 1;
+            int creds = AstroPioneer.Managers.CurrencyManager.Instance != null ? AstroPioneer.Managers.CurrencyManager.Instance.CurrentCredits : 0;
+            float tod = AstroPioneer.Managers.TimeManager.Instance != null ? AstroPioneer.Managers.TimeManager.Instance.CurrentTime : 0.25f;
 
-            SaveData data = new SaveData();
-            SaveMachines(data);
-            SaveCrops(data);
-            SaveInventory(data);
+            AstroPioneer.Core.SaveSystem.SaveMeta(seed, days, creds, tod, _starterItemsGiven);
 
-            PlayerPrefs.SetString(SAVE_KEY, JsonUtility.ToJson(data, true));
-            PlayerPrefs.Save();
-        }
+            // 2. V23: Flush ALL active machine states to ComplexState buffers BEFORE saving chunks.
+            //    This guarantees data written even if the player saves without walking away.
+            FlushAllMachineStates();
 
-        private void SaveMachines(SaveData data)
-        {
-            var savedIDs = new HashSet<string>();
-
-            foreach (MachineIDTag tag in FindObjectsOfType<MachineIDTag>())
+            // 3. Save Active Chunks (Grid structures, crops, utilities + ComplexStates)
+            if (cm != null)
             {
-                if (tag == null || string.IsNullOrEmpty(tag.itemID)) continue;
-
-                tag.EnsureUniqueID();
-                if (!savedIDs.Add(tag.uniqueInstanceID)) continue; // Skip duplicate GUID
-
-                AgriMech mech = tag.GetComponent<AgriMech>();
-                data.machines.Add(new MachineData
+                foreach (var chunk in cm.ActiveChunks.Values)
                 {
-                    itemID        = tag.itemID,
-                    position      = mech != null ? mech.currentGridPos : tag.originGridPos,
-                    cropID        = mech != null && mech.cropData != null ? mech.cropData.cropID : "",
-                    uniqueInstanceID = tag.uniqueInstanceID
-                });
+                    if (chunk.IsDirty)
+                        AstroPioneer.Core.SaveSystem.SaveChunkBinary(chunk, cm.WorldSeed, useAsync: false);
+                }
             }
-        }
 
-        private void SaveCrops(SaveData data)
-        {
-            if (CropManager.Instance == null) return;
-
-            foreach (var kvp in CropManager.Instance.GetAllCrops())
+            // 3. Save Inventory
+            if (InventoryManager.Instance != null)
             {
-                CropInstance crop = kvp.Value;
-                if (crop == null || crop.GetCropData() == null) continue;
-
-                data.crops.Add(new CropSaveData
-                {
-                    cropID       = crop.GetCropData().cropID,
-                    position     = crop.GetGridPosition(),
-                    currentStage = crop.GetCurrentStage(),
-                    isWatered    = crop.GetIsWatered()
-                });
+                AstroPioneer.Core.SaveSystem.SaveInventoryBinary(InventoryManager.Instance.Slots);
             }
-        }
 
-        private void SaveInventory(SaveData data)
-        {
-            if (InventoryManager.Instance == null) return;
-
-            var slots = InventoryManager.Instance.Slots;
-            for (int i = 0; i < slots.Count; i++)
+            // 4. Save Entities (AgriMech, etc.)
+            if (AstroPioneer.Core.ServiceLocator.TryGet<AstroPioneer.Core.EntityManager>(out var em) && AstroPioneer.Data.EntityRegistry.Instance != null)
             {
-                if (slots[i].IsEmpty) continue;
-                data.inventory.Add(new InventorySlotData
-                {
-                    slotIndex = i,
-                    itemID    = slots[i].item.id,
-                    quantity  = slots[i].quantity
-                });
+                AstroPioneer.Core.SaveSystem.SaveEntities(em.GetAllEntities(), AstroPioneer.Data.EntityRegistry.Instance);
             }
-        }
 
-        // ─────────────────────────── LOAD ───────────────────────────
+            // 5. Save Bots (Simulation Brain Data)
+            if (AstroPioneer.Machines.Automation.BotSimulationManager.Instance != null)
+            {
+                AstroPioneer.Core.SaveSystem.SaveBotsBinary(AstroPioneer.Machines.Automation.BotSimulationManager.Instance);
+            }
+
+            Debug.Log("[SaveGameManager] Binary Game State Saved Successfully!");
+        }
 
         public void LoadGame()
         {
-            if (!PlayerPrefs.HasKey(SAVE_KEY) || GridManager.Instance == null)
+            if (AstroPioneer.Core.SaveSystem.TryLoadMeta(out int seed, out int days, out int creds, out float tod, out bool starterGiven))
             {
-                return;
+                _starterItemsGiven = starterGiven;
+                
+                if (AstroPioneer.Managers.TimeManager.Instance != null)
+                {
+                    AstroPioneer.Managers.TimeManager.Instance.LoadTime(days, tod);
+                }
+                
+                if (AstroPioneer.Managers.CurrencyManager.Instance != null)
+                {
+                    AstroPioneer.Managers.CurrencyManager.Instance.LoadCredits(creds);
+                }
+                
+                Debug.Log($"[SaveGameManager] Loaded Meta: Seed={seed}, Day={days}, Credits={creds}, Time={tod}, StarterGiven={starterGiven}");
+            }
+            else
+            {
+                // No meta file = brand new game
+                _starterItemsGiven = false;
+                Debug.LogWarning("[SaveGameManager] No Save Meta found. Starting new game.");
             }
 
-            CleanupScene();
+            // Give starter items if this is a new/reset game session
+            if (!_starterItemsGiven && InventoryManager.Instance != null)
+            {
+                InventoryManager.Instance.GiveStarterItems();
+                _starterItemsGiven = true;
+            }
+            else if (_starterItemsGiven && InventoryManager.Instance != null)
+            {
+                // Load existing inventory
+                AstroPioneer.Core.SaveSystem.TryLoadInventoryBinary(InventoryManager.Instance.Slots);
+                // Trigger UI update
+                InventoryManager.Instance.SetSlot(0, InventoryManager.Instance.Slots[0].item, InventoryManager.Instance.Slots[0].quantity); // Hack to trigger OnInventoryUpdated
+            }
 
-            SaveData data = JsonUtility.FromJson<SaveData>(PlayerPrefs.GetString(SAVE_KEY));
+            // Chunks auto-load via ChunkManager as player moves.
 
-            int machines  = LoadMachines(data);
-            int crops     = LoadCrops(data);
-            int items     = LoadInventory(data);
+            // Load Entities
+            if (AstroPioneer.Data.EntityRegistry.Instance != null && AstroPioneer.Managers.ObjectPoolManager.Instance != null)
+            {
+                AstroPioneer.Core.SaveSystem.TryLoadEntities(AstroPioneer.Data.EntityRegistry.Instance, AstroPioneer.Managers.ObjectPoolManager.Instance);
+            }
+
+            // Load Bots (Simulation Brain Data)
+            if (AstroPioneer.Machines.Automation.BotSimulationManager.Instance != null)
+            {
+                AstroPioneer.Core.SaveSystem.TryLoadBotsBinary(AstroPioneer.Machines.Automation.BotSimulationManager.Instance);
+            }
         }
+
+        // ─── V23: Machine State Flush ───
 
         /// <summary>
-        /// Destroys all existing machines, orphan AgriMechs, and crops before loading fresh data.
-        /// Uses DestroyImmediate to prevent deferred-destroy race conditions within the same frame.
+        /// Flush ALL active machine states (storage inventories, pump levels, etc.)
+        /// from their GameObjects into Chunk.ComplexStates byte[] buffers.
+        /// Called BEFORE saving chunks to disk.
+        /// 
+        /// This is the "Master Save" — it guarantees no data is lost
+        /// regardless of whether chunks were unloaded or not.
         /// </summary>
-        private void CleanupScene()
+        private void FlushAllMachineStates()
         {
-            // Destroy all tagged machines
-            foreach (MachineIDTag tag in FindObjectsOfType<MachineIDTag>())
-            {
-                if (tag != null && tag.gameObject != null)
-                    DestroyImmediate(tag.gameObject);
-            }
+            // Find all active ISavableMachine components in the scene
+            var machines = FindObjectsOfType<MonoBehaviour>();
+            int flushed = 0;
 
-            // Destroy orphan AgriMechs without MachineIDTag (e.g. scene-placed debug objects)
-            foreach (AgriMech mech in FindObjectsOfType<AgriMech>())
+            foreach (var mb in machines)
             {
-                if (mech != null && mech.gameObject != null)
+                if (mb is AstroPioneer.Interfaces.ISavableMachine savable)
                 {
-                    DestroyImmediate(mech.gameObject);
+                    // Get grid position from MachineIDTag (all grid machines should have this)
+                    var tag = mb.GetComponent<AstroPioneer.Systems.MachineIDTag>();
+                    Vector2Int pos;
+                    if (tag != null)
+                    {
+                        pos = tag.originGridPos;
+                    }
+                    else
+                    {
+                        pos = new Vector2Int(
+                            Mathf.FloorToInt(mb.transform.position.x),
+                            Mathf.FloorToInt(mb.transform.position.y));
+                    }
+
+                    byte[] buffer = GridManager.Instance?.GetOrAllocateComplexState(pos);
+                    if (buffer != null)
+                    {
+                        savable.SaveState(new System.Span<byte>(buffer));
+                        flushed++;
+                    }
                 }
             }
 
-            GridManager.Instance.ClearAllCells();
-
-            if (CropManager.Instance != null)
-                CropManager.Instance.ClearAllCrops();
-        }
-
-        private int LoadMachines(SaveData data)
-        {
-            var loadedIDs = new HashSet<string>();
-            int count = 0;
-
-            foreach (var mData in data.machines)
-            {
-                // GUID-based duplicate skip
-                if (!string.IsNullOrEmpty(mData.uniqueInstanceID) && !loadedIDs.Add(mData.uniqueInstanceID))
-                    continue;
-
-                GameObject prefab = FindPrefab(mData.itemID);
-                if (prefab == null)
-                {
-                    continue;
-                }
-
-                GameObject newObj = SpawnMachine(prefab, mData);
-                RegisterMachineInGrid(newObj, prefab, mData.position);
-                count++;
-            }
-
-            return count;
-        }
-
-        private GameObject FindPrefab(string itemID)
-        {
-            return placeablePrefabs.FirstOrDefault(p =>
-            {
-                var tag = p.GetComponent<MachineIDTag>();
-                return tag != null && tag.itemID == itemID;
-            });
-        }
-
-        private GameObject SpawnMachine(GameObject prefab, MachineData mData)
-        {
-            float cSize = GridManager.Instance.CellSize;
-            MachineIDTag prefabTag = prefab.GetComponent<MachineIDTag>();
-            Vector2 dims = prefabTag.dimensions == Vector2.zero ? Vector2.one : (Vector2)prefabTag.dimensions;
-
-            Vector3 corner = GridManager.Instance.GridOrigin + new Vector3(mData.position.x * cSize, mData.position.y * cSize, 0);
-            Vector3 offset = new Vector3(dims.x * 0.5f * cSize, dims.y * 0.5f * cSize, 0);
-
-            GameObject obj = Instantiate(prefab, corner + offset, Quaternion.identity);
-
-            // Restore tag data
-            MachineIDTag tag = obj.GetComponent<MachineIDTag>();
-            if (tag != null)
-            {
-                tag.originGridPos = mData.position;
-                tag.uniqueInstanceID = !string.IsNullOrEmpty(mData.uniqueInstanceID)
-                    ? mData.uniqueInstanceID
-                    : System.Guid.NewGuid().ToString();
-            }
-
-            // Initialize AgriMech if applicable
-            AgriMech mech = obj.GetComponent<AgriMech>();
-            if (mech != null)
-            {
-                mech.Initialize(mData.position);
-                if (!string.IsNullOrEmpty(mData.cropID))
-                {
-                    CropData crop = allCropsRegistry.FirstOrDefault(c => c.cropID == mData.cropID);
-                    if (crop != null) mech.cropData = crop;
-                }
-            }
-
-            return obj;
-        }
-
-        private void RegisterMachineInGrid(GameObject obj, GameObject prefab, Vector2Int origin)
-        {
-            MachineIDTag prefabTag = prefab.GetComponent<MachineIDTag>();
-            Vector2 dims = prefabTag.dimensions == Vector2.zero ? Vector2.one : (Vector2)prefabTag.dimensions;
-            int w = Mathf.RoundToInt(dims.x);
-            int h = Mathf.RoundToInt(dims.y);
-
-            for (int x = 0; x < w; x++)
-                for (int y = 0; y < h; y++)
-                    GridManager.Instance.TryOccupyCell(origin + new Vector2Int(x, y), obj);
-        }
-
-        private int LoadCrops(SaveData data)
-        {
-            if (data.crops.Count == 0 || CropManager.Instance == null) return 0;
-
-            int count = 0;
-            foreach (var cData in data.crops)
-            {
-                CropData template = allCropsRegistry.FirstOrDefault(c => c.cropID == cData.cropID);
-                if (template == null)
-                {
-                    continue;
-                }
-
-                CropManager.Instance.PlantCrop(cData.position, template);
-                CropInstance planted = CropManager.Instance.GetCropAt(cData.position);
-                if (planted != null)
-                {
-                    planted.SetStageData(cData.currentStage, cData.isWatered);
-                    count++;
-                }
-            }
-            return count;
-        }
-
-        private int LoadInventory(SaveData data)
-        {
-            if (data.inventory.Count == 0 || InventoryManager.Instance == null) return 0;
-
-            InventoryManager.Instance.ClearInventory();
-            int count = 0;
-
-            foreach (var iData in data.inventory)
-            {
-                InventoryItem item = allItemsRegistry.FirstOrDefault(i => i.id == iData.itemID);
-                if (item != null)
-                {
-                    InventoryManager.Instance.SetSlot(iData.slotIndex, item, iData.quantity);
-                    count++;
-                }
-            }
-            return count;
+            if (flushed > 0)
+                Debug.Log($"[SaveGameManager] Flushed {flushed} machine states to ComplexState buffers.");
         }
     }
 }

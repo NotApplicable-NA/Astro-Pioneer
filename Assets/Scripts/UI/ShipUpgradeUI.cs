@@ -34,10 +34,12 @@ namespace AstroPioneer.UI
         void Start()
         {
             if (upgradePanel != null) upgradePanel.SetActive(false);
-
             if (upgradeTierButton != null)
                 upgradeTierButton.onClick.AddListener(OnUpgradeTierClicked);
+        }
 
+        void OnEnable()
+        {
             if (ShipUpgradeManager.Instance != null)
             {
                 ShipUpgradeManager.Instance.OnTierUpgraded += OnTierUpgraded;
@@ -45,13 +47,17 @@ namespace AstroPioneer.UI
             }
         }
 
-        void OnDestroy()
+        void OnDisable()
         {
             if (ShipUpgradeManager.Instance != null)
             {
                 ShipUpgradeManager.Instance.OnTierUpgraded -= OnTierUpgraded;
                 ShipUpgradeManager.Instance.OnRoomPurchased -= OnRoomPurchased;
             }
+        }
+
+        void OnDestroy()
+        {
         }
 
         // ── Panel Control ───────────────────────────

@@ -15,6 +15,7 @@ namespace AstroPioneer.Systems.Exploration
         [Header("State")]
         [SerializeField] private int currentHP;
         [SerializeField] private bool isDepleted = false;
+        private Coroutine activeShakeCoroutine;
 
         private Vector2Int gridPos;
         // Data from spawn entry
@@ -34,12 +35,12 @@ namespace AstroPioneer.Systems.Exploration
             sr = GetComponent<SpriteRenderer>();
         }
 
+        private void DestroyNode()
+        {
+        }
+
         void OnDestroy()
         {
-            if (GridManager.Instance != null && !isDepleted)
-            {
-                GridManager.Instance.ReleaseCell(gridPos);
-            }
         }
 
         /// <summary>
@@ -60,12 +61,11 @@ namespace AstroPioneer.Systems.Exploration
             if (sr != null && resource.icon != null)
                 sr.sprite = resource.icon;
 
-            // Register in Grid
-            if (GridManager.Instance != null)
-            {
-                gridPos = GridManager.Instance.WorldToGridPosition(transform.position);
-                GridManager.Instance.TryOccupyCell(gridPos, gameObject);
-            }
+            TryRegisterToGrid();
+        }
+
+        private void TryRegisterToGrid()
+        {
         }
 
         public void Interact(AstroPioneer.Data.InventoryItem heldItem)
@@ -83,7 +83,8 @@ namespace AstroPioneer.Systems.Exploration
             currentHP -= damage;
 
             // Visual feedback: shake
-            StartCoroutine(ShakeEffect());
+            if (activeShakeCoroutine != null) StopCoroutine(activeShakeCoroutine);
+            activeShakeCoroutine = StartCoroutine(ShakeEffect());
 
             if (currentHP <= 0)
             {
@@ -95,12 +96,6 @@ namespace AstroPioneer.Systems.Exploration
         {
             if (isDepleted) return;
             isDepleted = true;
-
-            // Unregister from Grid
-            if (GridManager.Instance != null)
-            {
-                GridManager.Instance.ReleaseCell(gridPos);
-            }
 
             // Calculate drop amount
             int dropQty = Random.Range(minDrop, maxDrop + 1);
@@ -137,6 +132,7 @@ namespace AstroPioneer.Systems.Exploration
             }
 
             transform.position = originalPos;
+            activeShakeCoroutine = null;
         }
 
         private System.Collections.IEnumerator DestroySequence()

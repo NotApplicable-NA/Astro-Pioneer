@@ -33,6 +33,7 @@ namespace AstroPioneer.UI
         [Header("Filter")]
         [SerializeField] private CraftingStation stationFilter = CraftingStation.Hand;
 
+        private readonly List<CraftingRecipe> recipeBuffer = new List<CraftingRecipe>();
         private CraftingRecipe selectedRecipe;
         private bool isOpen = false;
 
@@ -123,8 +124,8 @@ namespace AstroPioneer.UI
 
             if (CraftingManager.Instance == null) return;
 
-            var recipes = CraftingManager.Instance.GetRecipesForStation(stationFilter);
-            foreach (var recipe in recipes)
+            CraftingManager.Instance.GetRecipesForStation(stationFilter, recipeBuffer);
+            foreach (var recipe in recipeBuffer)
             {
                 if (recipeButtonPrefab == null || recipeListContainer == null) continue;
 

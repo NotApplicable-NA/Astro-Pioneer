@@ -1,5 +1,6 @@
 using UnityEngine;
 using System;
+using AstroPioneer.Core;
 
 namespace AstroPioneer.Managers
 {
@@ -26,7 +27,7 @@ namespace AstroPioneer.Managers
 
         void Awake()
         {
-            if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+            if (Instance != null && Instance != this) { Destroy(this); return; }
             Instance = this;
 
             currentCredits = startingCredits;
@@ -39,6 +40,12 @@ namespace AstroPioneer.Managers
         }
 
         // ─── Credits ───
+
+        public void LoadCredits(int amount)
+        {
+            currentCredits = amount;
+            OnCreditsChanged?.Invoke(currentCredits);
+        }
 
         public void AddCredits(int amount)
         {

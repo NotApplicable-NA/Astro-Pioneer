@@ -18,6 +18,7 @@ namespace AstroPioneer.Machines
         private float scanTimer;
         private Vector2Int gridPos;
         private bool isPowered;
+        private int frameSliceOffset;
 
         // ─── IPowerConsumer ───
         public float PowerRequired => powerRequired;
@@ -30,6 +31,8 @@ namespace AstroPioneer.Machines
         {
             if (GridManager.Instance != null)
                 gridPos = GridManager.Instance.WorldToGridPosition(transform.position);
+
+            frameSliceOffset = Mathf.Abs(GetInstanceID()) % 10;
 
             if (PowerManager.Instance != null)
                 PowerManager.Instance.RegisterConsumer(this);
@@ -44,11 +47,12 @@ namespace AstroPioneer.Machines
         void Update()
         {
             if (!isPowered && !bypassPower) return;
+            if ((Time.frameCount + frameSliceOffset) % 2 != 0) return;
 
-            scanTimer += Time.deltaTime;
+            scanTimer += Time.deltaTime * 2f;
             if (scanTimer >= scanInterval)
             {
-                scanTimer = 0;
+                scanTimer -= scanInterval;
                 PerformHarvestScan();
             }
         }
@@ -61,9 +65,17 @@ namespace AstroPioneer.Machines
             {
                 for (int y = -1; y <= 1; y++)
                 {
-                    CropInstance crop = CropManager.Instance.GetCropAt(gridPos + new Vector2Int(x, y));
-                    if (crop != null && crop.IsHarvestable())
-                        crop.Harvest();
+                    Vector2Int pos = gridPos + new Vector2Int(x, y);
+                    if (CropManager.Instance.TryHarvestCropAt(pos, out AstroPioneer.Data.CropStructureData data))
+                    {
+                        if (data != null && AstroPioneer.Managers.InventoryManager.Instance != null && data.harvestItem != null)
+                            AstroPioneer.Managers.InventoryManager.Instance.AddItem(data.harvestItem, data.harvestQuantity);
+
+                        if (AstroPioneer.Core.ServiceLocator.TryGet<AstroPioneer.Managers.ObjectPoolManager>(out var pool))
+                        {
+                            var vfxObj = pool.SpawnFromPool(AstroPioneer.Core.GameConstants.POOL_HARVEST_VFX, null, AstroPioneer.Managers.GridManager.Instance.GridToWorldPosition(pos));
+                        }
+                    }
                 }
             }
         }

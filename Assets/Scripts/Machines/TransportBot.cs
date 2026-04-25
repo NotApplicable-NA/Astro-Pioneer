@@ -3,182 +3,127 @@ using System.Collections;
 using AstroPioneer.Data;
 using AstroPioneer.Managers;
 using AstroPioneer.Systems.Pathfinding;
+using AstroPioneer.Core;
 
 namespace AstroPioneer.Machines.Automation
 {
     public enum TransportState { Idle, MovingToSource, PickingUp, MovingToTarget, DroppingOff }
 
     /// <summary>
-    /// TransportBot — Automated bot that picks up items from a source machine
-    /// and delivers them to a target machine via pathfinding.
+    /// TransportBot V24.11 — Pure Visual Chaser (Wayang).
+    /// 
+    /// HUKUM ARSITEKTUR:
+    /// - Wayang ini TIDAK PERNAH membuat data baru di BotSimulationManager.
+    /// - Ia hanya MENCARI data yang sudah ada berdasarkan ID.
+    /// - Jika data tidak ditemukan, wayang ini MENGHANCURKAN DIRINYA SENDIRI.
+    /// - Penciptaan data bot HANYA dilakukan melalui PlacementManager (Pintu Depan).
     /// </summary>
     [RequireComponent(typeof(BotController))]
     public class TransportBot : MonoBehaviour
     {
-        [Header("State")]
-        [SerializeField] private TransportState currentState = TransportState.Idle;
-        [SerializeField] private InventoryItem heldItem;
-
-        [Header("Config")]
-        [SerializeField] private InventoryItem itemToTransport;
-        [SerializeField] private float taskTimeout = 10f;
-
+        [Header("Identity")]
+        [SerializeField] private string botID;
+        
+        private BotData data;
         private BotController botController;
         private Animator animator;
-        private Vector3 sourcePosition;
-        private Vector3 targetPosition;
-        private bool hasTask;
 
-        public TransportState GetState() => currentState;
-        public bool IsAvailable => currentState == TransportState.Idle && !hasTask;
+        // Animator Hashes
+        private static readonly int PickupHash = Animator.StringToHash("Pickup");
+        private static readonly int DropoffHash = Animator.StringToHash("Dropoff");
+        private static readonly int IsCarryingHash = Animator.StringToHash("IsCarrying");
+
+        public string BotID => botID;
+        public Vector3 WorldPosition => transform.position;
+        public bool IsAvailable => data != null && !data.hasTask;
+        public BotStation HomeStation { get; private set; }
+
+        void Awake()
+        {
+            botController = GetComponent<BotController>();
+            animator = GetComponent<Animator>();
+        }
+
+        /// <summary>
+        /// Bind this visual to an existing BotData in the simulation brain.
+        /// Called by ChunkRenderer when spawning visuals for bots in loaded chunks.
+        /// This method ONLY looks up data — it NEVER creates new data.
+        /// </summary>
+        public void BindToSimulation(string id)
+        {
+            botID = id;
+            if (BotSimulationManager.Instance != null)
+            {
+                data = BotSimulationManager.Instance.GetBotData(id);
+            }
+
+            if (data == null)
+            {
+                Debug.LogWarning($"[TransportBot] Wayang tanpa jiwa! No BotData found for '{id}'. Destroying visual.");
+                Destroy(gameObject);
+            }
+        }
 
         void Start()
         {
-            TryRegisterOnGrid();
-            botController = GetComponent<BotController>();
-            animator = GetComponent<Animator>();
-
-            if (BotManager.Instance != null)
-                BotManager.Instance.RegisterBot(this);
-
-            ResetState();
-        }
-
-        public void AssignTask(Vector3 source, Vector3 target)
-        {
-            if (currentState != TransportState.Idle) return;
-
-            sourcePosition = source;
-            targetPosition = target;
-            hasTask = true;
-            StartCoroutine(ExecuteTransportTask());
-        }
-
-        private IEnumerator ExecuteTransportTask()
-        {
-            // 1. Move to source
-            yield return StartCoroutine(MoveToWithTimeout(sourcePosition, TransportState.MovingToSource));
-            if (!hasTask) yield break;
-
-            // 2. Pickup
-            currentState = TransportState.PickingUp;
-            if (animator != null) animator.SetTrigger("Pickup");
-            yield return new WaitForSeconds(0.5f);
-
-            if (!TryPickupAtPosition(sourcePosition))
+            // Wayang HARUS sudah di-bind sebelum Start().
+            // Jika belum, coba lookup terakhir. Jika gagal = mati.
+            if (data == null && !string.IsNullOrEmpty(botID))
             {
-                ResetState();
-                yield break;
+                BindToSimulation(botID);
             }
-
-            if (animator != null) animator.SetBool("IsCarrying", true);
-
-            // 3. Move to target
-            yield return StartCoroutine(MoveToWithTimeout(targetPosition, TransportState.MovingToTarget));
-            if (!hasTask) yield break;
-
-            // 4. Dropoff
-            currentState = TransportState.DroppingOff;
-            if (animator != null) animator.SetTrigger("Dropoff");
-            yield return new WaitForSeconds(0.5f);
-
-            TryDropoffAtPosition(targetPosition);
-            if (animator != null) animator.SetBool("IsCarrying", false);
-
-            ResetState();
-        }
-
-        private IEnumerator MoveToWithTimeout(Vector3 targetCenter, TransportState state)
-        {
-            currentState = state;
-            Vector3 approachPos = GetValidInteractionPoint(targetCenter);
-
-            if (!botController.SetDestination(approachPos))
+            else if (data == null)
             {
-                ResetState();
-                yield break;
-            }
-
-            float startTime = Time.time;
-            yield return new WaitUntil(() => !botController.IsMoving || Time.time - startTime > taskTimeout);
-
-            if (botController.IsMoving)
-            {
-                botController.StopMoving();
-                ResetState();
-                yield break;
-            }
-
-            yield return null;
-        }
-
-        private bool TryPickupAtPosition(Vector3 pos)
-        {
-            foreach (var hit in Physics2D.OverlapCircleAll(pos, 0.5f))
-            {
-                if (hit.TryGetComponent<MachineWaterPump>(out var pump) && pump.TryTakeWater(1, out var waterItem))
-                {
-                    if (waterItem != null)
-                    {
-                        itemToTransport = waterItem;
-                        heldItem = waterItem;
-                    }
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        private void TryDropoffAtPosition(Vector3 pos)
-        {
-            foreach (var hit in Physics2D.OverlapCircleAll(pos, 0.5f))
-            {
-                if (hit.TryGetComponent<MachineStorage>(out var storage))
-                {
-                    storage.TryAddItem(itemToTransport, 1);
-                    break;
-                }
+                Debug.LogWarning("[TransportBot] Wayang tanpa jiwa! No botID assigned. Destroying visual.");
+                Destroy(gameObject);
             }
         }
 
-        private void ResetState()
-        {
-            currentState = TransportState.Idle;
-            hasTask = false;
-            heldItem = null;
-            if (animator != null) animator.SetBool("IsCarrying", false);
-        }
+        // ─── Emergency & Rescue System (V24.9) ───
 
-        private Vector3 GetValidInteractionPoint(Vector3 targetCenter)
+        public void ExecuteEmergencyRescue(Vector3 rescuePos, Vector3 targetPos)
         {
-            Vector3[] offsets = { Vector3.down, Vector3.left, Vector3.right, Vector3.up };
-
-            foreach (var offset in offsets)
+            if (data != null)
             {
-                Vector3 candidate = targetCenter + offset;
-                if (PathfindingManager.Instance != null && PathfindingManager.Instance.IsWalkable(candidate))
-                    return candidate;
+                data.currentPos = targetPos;
+                data.path.Clear();
+                data.hasTask = false;
+                data.state = TransportState.Idle;
             }
-            return targetCenter + Vector3.down;
+            transform.position = targetPos;
+            Debug.Log($"[TransportBot] Emergency Rescue executed for {botID}");
         }
 
-        private void TryRegisterOnGrid()
-        {
-            if (GridManager.Instance == null) return;
-            Vector2Int pos = GridManager.Instance.WorldToGridPosition(transform.position);
-            if (!GridManager.Instance.GetOccupiedCells().ContainsKey(pos))
-                GridManager.Instance.TryOccupyCell(pos, gameObject);
-        }
-
-        [ContextMenu("Debug State")]
-        public void DebugState() => Debug.Log($"[TransportBot] State: {currentState}, HasTask: {hasTask}");
-
-        [ContextMenu("Force Reset")]
         public void ForceReset()
         {
-            StopAllCoroutines();
-            botController?.StopMoving();
-            ResetState();
+            if (data != null)
+            {
+                data.path.Clear();
+                data.hasTask = false;
+                data.state = TransportState.Idle;
+            }
+            Debug.Log($"[TransportBot] Force Reset executed for {botID}");
         }
+
+        void Update()
+        {
+            if (data == null) return;
+
+            // 1. Follow the simulation position (smooth visual lerp)
+            transform.position = Vector3.Lerp(transform.position, (Vector3)data.currentPos, Time.deltaTime * 10f);
+
+            // 2. Sync Animations based on Simulation State
+            SyncVisuals();
+        }
+
+        private void SyncVisuals()
+        {
+            if (animator == null) return;
+
+            bool isCarrying = data.heldItemID != 0;
+            animator.SetBool(IsCarryingHash, isCarrying);
+        }
+
+        public void SetHomeStation(BotStation station) => HomeStation = station;
     }
 }

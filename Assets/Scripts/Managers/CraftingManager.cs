@@ -3,6 +3,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using AstroPioneer.Data;
+using AstroPioneer.Core;
 
 namespace AstroPioneer.Managers
 {
@@ -39,32 +40,36 @@ namespace AstroPioneer.Managers
 
         void Awake()
         {
-            if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+            if (Instance != null && Instance != this) { Destroy(this); return; }
             Instance = this;
+            ServiceLocator.Register(this);
         }
 
         void OnDestroy()
         {
-            if (Instance == this) Instance = null;
+            if (Instance == this) { Instance = null; ServiceLocator.Unregister<CraftingManager>(); }
         }
-
         // ─── Public API ───
 
-        public List<CraftingRecipe> GetRecipesForStation(CraftingStation station)
+        public void GetRecipesForStation(CraftingStation station, List<CraftingRecipe> result)
         {
-            var result = new List<CraftingRecipe>();
+            result.Clear();
             foreach (var recipe in allRecipes)
                 if (recipe.requiredStation == station) result.Add(recipe);
-            return result;
         }
 
-        public List<CraftingRecipe> GetUnlockedRecipes()
+        public CraftingRecipe GetRecipeByID(string id)
         {
+            if (string.IsNullOrEmpty(id)) return null;
+            return allRecipes.Find(r => r.recipeID == id);
+        }
+
+        public void GetUnlockedRecipes(List<CraftingRecipe> result)
+        {
+            result.Clear();
             int trust = CurrencyManager.Instance != null ? CurrencyManager.Instance.CurrentTrust : 0;
-            var result = new List<CraftingRecipe>();
             foreach (var recipe in allRecipes)
                 if (recipe.trustRequired <= trust) result.Add(recipe);
-            return result;
         }
 
         public bool CanCraft(CraftingRecipe recipe)
@@ -151,9 +156,8 @@ namespace AstroPioneer.Managers
                 // Deliver result (retry if inventory full)
                 if (InventoryManager.Instance != null && currentlyCrafting.resultItem != null)
                 {
-                    if (!InventoryManager.Instance.AddItem(currentlyCrafting.resultItem, currentlyCrafting.resultQuantity))
-                        yield return new WaitUntil(() =>
-                            InventoryManager.Instance.AddItem(currentlyCrafting.resultItem, currentlyCrafting.resultQuantity));
+                    while (!InventoryManager.Instance.AddItem(currentlyCrafting.resultItem, currentlyCrafting.resultQuantity))
+                        yield return null;
                 }
 
                 OnCraftCompleted?.Invoke(currentlyCrafting);

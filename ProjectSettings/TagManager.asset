@@ -11,7 +11,7 @@ TagManager:
   - 
   - Water
   - UI
-  - 
+  - Obstacles
   - 
   - 
   - 
@@ -41,6 +41,15 @@ TagManager:
   - name: Default
     uniqueID: 0
     locked: 0
+  - name: Machines
+    uniqueID: 705108761
+    locked: 0
+  - name: Units
+    uniqueID: 2925138337
+    locked: 0
   - name: VFX
     uniqueID: 1427145807
+    locked: 0
+  - name: UI
+    uniqueID: 2519717
     locked: 0

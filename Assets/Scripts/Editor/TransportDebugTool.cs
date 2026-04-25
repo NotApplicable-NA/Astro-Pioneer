@@ -29,7 +29,6 @@ namespace AstroPioneer.Editor
 
             InventoryItem newItem = ScriptableObject.CreateInstance<InventoryItem>();
             newItem.displayName = displayName;
-            newItem.id = id;
             newItem.maxStackSize = stackSize;
             newItem.description = desc;
             // Note: Icon will be null, user still needs to assign it if they care about UI

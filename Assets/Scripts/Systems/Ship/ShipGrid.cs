@@ -13,7 +13,7 @@ namespace AstroPioneer.Systems.Ship
     }
 
     [System.Serializable]
-    public class ShipCell
+    public struct ShipCell
     {
         public ShipCellState state;
         public ShipRoom room;          // Which room this cell belongs to
@@ -90,7 +90,7 @@ namespace AstroPioneer.Systems.Ship
             {
                 for (int y = 0; y < maxGridSize.y; y++)
                 {
-                    grid[x, y] = new ShipCell { state = ShipCellState.Locked };
+                    grid[x, y].state = ShipCellState.Locked;
                 }
             }
 
@@ -131,10 +131,16 @@ namespace AstroPioneer.Systems.Ship
                    pos.y >= 0 && pos.y < maxGridSize.y;
         }
 
-        public ShipCell GetCell(Vector2Int pos)
+        public ShipCell? GetCell(Vector2Int pos)
         {
             if (!IsWithinBounds(pos)) return null;
             return grid[pos.x, pos.y];
+        }
+
+        public void SetCellState(Vector2Int pos, ShipCellState newState)
+        {
+            if (IsWithinBounds(pos))
+                grid[pos.x, pos.y].state = newState;
         }
 
         public ShipCellState GetCellState(Vector2Int pos)

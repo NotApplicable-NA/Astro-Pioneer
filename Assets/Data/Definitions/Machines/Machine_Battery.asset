@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 74166d08326161f448b75c452c6598ca, type: 3}
+  m_Name: Machine_Battery
+  m_EditorClassIdentifier: 
+  displayName: 
+  category: 3
+  sprites:
+  - {fileID: 21300000, guid: bc8a018fb92b2d34a84577a64fb6a4a0, type: 3}
+  visualPrefab: {fileID: 9154855005553536412, guid: 8123bbe58b49b804794b7b8506dd8558, type: 3}
+  dimensions: {x: 1, y: 2}
+  blocksMacroPlacement: 1
+  hasComplexState: 0
+  sellPrice: 0
+  buyPrice: 0

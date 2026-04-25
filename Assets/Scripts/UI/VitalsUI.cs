@@ -11,6 +11,9 @@ namespace AstroPioneer.UI
     /// </summary>
     public class VitalsUI : MonoBehaviour
     {
+        private readonly System.Text.StringBuilder o2Buffer = new System.Text.StringBuilder(32);
+        private readonly System.Text.StringBuilder fatigueBuffer = new System.Text.StringBuilder(32);
+        
         [Header("Oxygen Bar")]
         [SerializeField] private Slider oxygenBar;
         [SerializeField] private Image oxygenFill;
@@ -100,7 +103,14 @@ namespace AstroPioneer.UI
         {
             float percent = max > 0 ? current / max : 0f;
             if (oxygenBar != null) oxygenBar.value = percent;
-            if (oxygenText != null) oxygenText.text = $"{Mathf.CeilToInt(current)}/{Mathf.CeilToInt(max)}";
+            if (oxygenText != null) 
+            {
+                o2Buffer.Clear();
+                o2Buffer.Append(Mathf.CeilToInt(current));
+                o2Buffer.Append('/');
+                o2Buffer.Append(Mathf.CeilToInt(max));
+                oxygenText.SetText(o2Buffer);
+            }
             if (oxygenFill != null) oxygenFill.color = percent <= 0.25f ? o2LowColor : o2NormalColor;
 
             if (lowO2Warning != null) lowO2Warning.SetActive(percent <= 0.25f && percent > 0f);
@@ -121,7 +131,18 @@ namespace AstroPioneer.UI
             {
                 if (isFatigued)
                 {
-                    fatigueText.text = $"FATIGUED: {multiplier:F2}x Drain";
+                    fatigueBuffer.Clear();
+                    fatigueBuffer.Append("FATIGUED: ");
+                    // Simple manual rounding for float without .ToString("F2") which allocates
+                    int rX = Mathf.FloorToInt(multiplier);
+                    int rDec = Mathf.FloorToInt((multiplier - rX) * 100);
+                    fatigueBuffer.Append(rX);
+                    fatigueBuffer.Append('.');
+                    if (rDec < 10) fatigueBuffer.Append('0');
+                    fatigueBuffer.Append(rDec);
+                    fatigueBuffer.Append("x Drain");
+                    
+                    fatigueText.SetText(fatigueBuffer);
                     fatigueText.color = Color.yellow;
                 }
                 else
