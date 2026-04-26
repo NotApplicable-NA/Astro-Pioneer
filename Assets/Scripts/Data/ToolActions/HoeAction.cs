@@ -11,9 +11,6 @@ namespace AstroPioneer.Data
     [CreateAssetMenu(fileName = "ToolAction_Hoe", menuName = "AstroPioneer/Tools/Hoe Action")]
     public class HoeAction : ToolBehaviour
     {
-        // Pre-allocated buffer for Physics2D NonAlloc queries (zero GC)
-        private static readonly Collider2D[] overlapBuffer = new Collider2D[16];
-
         public override bool Execute(Vector2Int gridPos, InventoryItem sourceItem, int hotbarSlotIndex)
         {
             if (GridManager.Instance == null) return false;
@@ -21,10 +18,13 @@ namespace AstroPioneer.Data
             ushort structureID = GridManager.Instance.GetStructureAt(gridPos);
             ushort utilityID = GridManager.Instance.GetUtilityAt(gridPos);
 
-            // 1. Try remove structure (crops, machines)
+            // 1. Try remove structure (crops, machines, fences)
             if (structureID != 0)
             {
                 GridManager.Instance.RemoveStructure(gridPos);
+                // V25: Fence now in StructureLayer — reevaluate enclosures on structure removal
+                if (AstroPioneer.Systems.Husbandry.EnclosureSystem.Instance != null)
+                    AstroPioneer.Systems.Husbandry.EnclosureSystem.Instance.ReevaluateEnclosuresAround(gridPos);
                 return true;
             }
 

@@ -11,16 +11,12 @@ namespace AstroPioneer.Systems.Pathfinding
         private Vector3 originPosition;
         private PathNode[,] gridArray;
         
-        // Physics-based collision
-        private LayerMask obstacleLayerMask;
-
-        public PathfindingGrid(int width, int height, float cellSize, Vector3 originPosition, LayerMask obstacleMask)
+        public PathfindingGrid(int width, int height, float cellSize, Vector3 originPosition)
         {
             this.width = width;
             this.height = height;
             this.cellSize = cellSize;
             this.originPosition = originPosition;
-            this.obstacleLayerMask = obstacleMask;
 
             gridArray = new PathNode[width, height];
 
@@ -60,7 +56,7 @@ namespace AstroPioneer.Systems.Pathfinding
         public int GetHeight() => height;
 
         /// <summary>
-        /// Re-scan a single node's walkability using Physics2D.
+        /// Re-scan a single node's walkability using GridManager (Data-Driven).
         /// Call when an obstacle is placed or removed at runtime.
         /// </summary>
         public void RefreshNode(int x, int y)
@@ -68,8 +64,17 @@ namespace AstroPioneer.Systems.Pathfinding
             PathNode node = GetNode(x, y);
             if (node == null) return;
 
-            Vector3 worldPos = GetWorldPosition(x, y) + new Vector3(cellSize * 0.5f, cellSize * 0.5f);
-            node.isWalkable = Physics2D.OverlapCircle(worldPos, cellSize * 0.3f, obstacleLayerMask) == null;
+            Vector3 worldPos = GetWorldPosition(x, y);
+            Vector2Int gridPos = new Vector2Int(Mathf.FloorToInt(worldPos.x), Mathf.FloorToInt(worldPos.y));
+            
+            if (AstroPioneer.Managers.GridManager.Instance != null)
+            {
+                node.isWalkable = !AstroPioneer.Managers.GridManager.Instance.IsSolidAt(gridPos);
+            }
+            else
+            {
+                node.isWalkable = true;
+            }
         }
 
         /// <summary>

@@ -13,7 +13,7 @@ namespace AstroPioneer.Machines
     /// Classified as ENTITY (not Structure) because it moves freely.
     /// Reads grid data beneath it via EntityManager.GetGridBelowEntity().
     /// </summary>
-    [RequireComponent(typeof(Rigidbody2D))]
+    // Physics attributes removed for DOD architecture
     public class AgriMech : MonoBehaviour, IEntity, IGridInteractable
     {
         [Header("Settings")]

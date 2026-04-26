@@ -22,5 +22,11 @@ namespace AstroPioneer.Systems
             if (string.IsNullOrEmpty(uniqueInstanceID))
                 uniqueInstanceID = System.Guid.NewGuid().ToString();
         }
+
+        public bool Covers(Vector2Int worldPos)
+        {
+            return worldPos.x >= originGridPos.x && worldPos.x < originGridPos.x + dimensions.x &&
+                   worldPos.y >= originGridPos.y && worldPos.y < originGridPos.y + dimensions.y;
+        }
     }
 }

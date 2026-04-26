@@ -101,24 +101,24 @@ namespace AstroPioneer.Data
 
         /// <summary>
         /// Check if the given ID corresponds to a Crop structure. O(1).
-        /// Replaces the legacy hardcoded range check (id > 0 && id < 100).
+        /// V25.1: Uses capability flag instead of category enum.
         /// </summary>
         public bool IsCrop(ushort id)
         {
             EnsureInitialized();
             if (id == 0 || id >= allStructures.Count) return false;
             var data = allStructures[id];
-            return data != null && data.category == StructureCategory.Crop;
+            return data != null && data.isCrop;
         }
 
         /// <summary>
-        /// Get the category of a structure by ID. Returns null if not found.
+        /// V25.1: Get the target grid layer of a structure by ID. Returns null if not found.
         /// </summary>
-        public StructureCategory? GetCategory(ushort id)
+        public TargetGridLayer? GetTargetLayer(ushort id)
         {
             EnsureInitialized();
             if (id == 0 || id >= allStructures.Count || allStructures[id] == null) return null;
-            return allStructures[id].category;
+            return allStructures[id].targetLayer;
         }
 
         public void Rebuild()

@@ -114,7 +114,11 @@ namespace AstroPioneer.Core
             var entry = structureRegistry.Get(structureID);
             if (entry == null || entry.visualPrefab == null) return;
 
-            Vector3 worldPos = new Vector3(worldX + 0.5f, worldY + 0.5f, -0.1f);
+            // V25 Fix: Correct centering for multi-tile and single-tile DOD visuals
+            Vector3 centerOfFirstTile = new Vector3(worldX + 0.5f, worldY + 0.5f, -0.1f);
+            Vector3 dimensionsOffset = new Vector3((entry.dimensions.x - 1) * 0.5f, (entry.dimensions.y - 1) * 0.5f, 0);
+            Vector3 worldPos = centerOfFirstTile + dimensionsOffset + entry.visualOffset;
+
             if (ServiceLocator.TryGet<ObjectPoolManager>(out var pool))
             {
                 GameObject visual = pool.SpawnFromPool(structureID, entry.visualPrefab, worldPos);
@@ -124,9 +128,14 @@ namespace AstroPioneer.Core
                 if (sr != null) 
                 { 
                     sr.material = new Material(Shader.Find("Sprites/Default")); 
-                    sr.sortingOrder = 100; 
+                    
+                    // V25.2 Z-Ordering by Layer
+                    if (entry.targetLayer == TargetGridLayer.FloorLayer) sr.sortingOrder = AstroPioneer.Core.GameConstants.SORTING_ORDER_FLOOR;
+                    else if (entry.targetLayer == TargetGridLayer.UtilityLayer) sr.sortingOrder = AstroPioneer.Core.GameConstants.SORTING_ORDER_UTILITY; // In front of structures
+                    else sr.sortingOrder = AstroPioneer.Core.GameConstants.SORTING_ORDER_STRUCTURE; // StructureLayer
+                    
 
-                    if (entry.category == AstroPioneer.Data.StructureCategory.Crop && entry.sprites != null)
+                    if (entry.isCrop && entry.sprites != null)
                     {
                         // Newly placed crop is at stage 0
                         if (entry.sprites.Length > 0) sr.sprite = entry.sprites[0];
@@ -165,6 +174,29 @@ namespace AstroPioneer.Core
             }
         }
 
+        public GameObject GetVisualAt(Vector2Int worldPos)
+        {
+            var coord = ChunkCoord.FromGridPos(worldPos.x, worldPos.y);
+            if (!visualMap.TryGetValue(coord, out var visuals)) return null;
+            ChunkCoord.WorldToLocal(worldPos.x, worldPos.y, out int lx, out int ly);
+
+            // Since multi-tile structures might only be registered at their origin (lx, ly),
+            // a perfect lookup would check all visuals and their bounds.
+            // For now, check if any visual's tag covers this position.
+            foreach (var v in visuals)
+            {
+                if (v.go != null)
+                {
+                    var tag = v.go.GetComponentInChildren<AstroPioneer.Systems.MachineIDTag>();
+                    if (tag != null && tag.Covers(worldPos)) return v.go;
+                    
+                    // Fallback for 1x1 structures that might not have MachineIDTag
+                    if (v.localX == lx && v.localY == ly) return v.go;
+                }
+            }
+            return null;
+        }
+
         public void UpdateVisualMetadata(int worldX, int worldY)
         {
             var coord = ChunkCoord.FromGridPos(worldX, worldY);
@@ -180,7 +212,7 @@ namespace AstroPioneer.Core
 
                 foreach (var v in visuals)
                 {
-                    if (v.localX == lx && v.localY == ly && v.go != null && entry.category == StructureCategory.Crop && v.spriteRenderer != null)
+                    if (v.localX == lx && v.localY == ly && v.go != null && entry.isCrop && v.spriteRenderer != null)
                     {
                         byte meta = chunk.MetadataLayer.Get(lx, ly);
                         int stage = meta & GameConstants.META_GROWTH_MASK;
@@ -199,9 +231,12 @@ namespace AstroPioneer.Core
             var entry = structureRegistry != null ? structureRegistry.Get(id) : null;
             if (entry == null || entry.visualPrefab == null) return;
 
+            // V25 Fix: Correct centering for multi-tile and single-tile DOD visuals
             float worldX = chunk.Coord.WorldOriginX + x + 0.5f;
             float worldY = chunk.Coord.WorldOriginY + y + 0.5f;
-            Vector3 worldPos = new Vector3(worldX, worldY, 0f);
+            Vector3 centerOfFirstTile = new Vector3(worldX, worldY, 0f);
+            Vector3 dimensionsOffset = new Vector3((entry.dimensions.x - 1) * 0.5f, (entry.dimensions.y - 1) * 0.5f, 0);
+            Vector3 worldPos = centerOfFirstTile + dimensionsOffset + entry.visualOffset;
 
             if (ServiceLocator.TryGet<ObjectPoolManager>(out var pool))
             {
@@ -219,8 +254,12 @@ namespace AstroPioneer.Core
                 if (sr != null)
                 {
                     sr.material = new Material(Shader.Find("Sprites/Default"));
-                    sr.sortingOrder = 100;
-                    if (entry.category == StructureCategory.Crop && entry.sprites != null)
+                    
+                    // V25.2 Z-Ordering by Layer
+                    if (entry.targetLayer == TargetGridLayer.FloorLayer) sr.sortingOrder = AstroPioneer.Core.GameConstants.SORTING_ORDER_FLOOR;
+                    else if (entry.targetLayer == TargetGridLayer.UtilityLayer) sr.sortingOrder = AstroPioneer.Core.GameConstants.SORTING_ORDER_UTILITY; // In front of structures
+                    else sr.sortingOrder = AstroPioneer.Core.GameConstants.SORTING_ORDER_STRUCTURE; // StructureLayer
+                    if (entry.isCrop && entry.sprites != null)
                     {
                         int stage = chunk.MetadataLayer.Get(x, y) & GameConstants.META_GROWTH_MASK;
                         if (stage < entry.sprites.Length) sr.sprite = entry.sprites[stage];

@@ -8,7 +8,7 @@ namespace AstroPioneer.Machines
     /// BotController — Low-level pathfinding movement driver for automated bots.
     /// Follows waypoints from PathfindingManager and handles sprite flipping.
     /// </summary>
-    [RequireComponent(typeof(Rigidbody2D))]
+    // Physics attributes removed for DOD architecture
     public class BotController : MonoBehaviour
     {
         [Header("Movement")]
