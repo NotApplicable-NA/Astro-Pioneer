@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f4d6ea7a3e98598489d89be76b882835, type: 3}
+  m_Name: Item_TransportBot
+  m_EditorClassIdentifier: 
+  displayName: Transport Bot
+  description: 
+  icon: {fileID: 508002480, guid: 76adea008cb169d41ada49770669380d, type: 3}
+  isStackable: 0
+  maxStackSize: 1
+  isMicroGridItem: 0
+  isEntity: 1
+  type: 4
+  toolAction: {fileID: 0}
+  placedStructure: {fileID: 11400000, guid: 76ef2a6397e1d9745a93adef14f567fd, type: 2}
+  sellPrice: 10
+  buyPrice: 0

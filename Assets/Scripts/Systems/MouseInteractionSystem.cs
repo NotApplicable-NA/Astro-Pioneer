@@ -1,178 +1,195 @@
 using UnityEngine;
 using AstroPioneer.Managers;
+using AstroPioneer.Machines;
+using AstroPioneer.Core;
 
 namespace AstroPioneer.Systems
 {
     /// <summary>
-    /// Sistem untuk handle Mouse-to-Grid interaction menggunakan Raycast.
-    /// Mengacu pada requirement: "Implementasi deteksi Mouse-to-Grid (Raycast)"
+    /// MouseInteractionSystem — Handles mouse input for grid-based interaction.
+    /// Converts mouse position to grid coordinates, manages cursor visual, and fires events.
     /// </summary>
     public class MouseInteractionSystem : MonoBehaviour
     {
-        [Header("Camera Reference")]
-        [Tooltip("Camera untuk raycast (default: Main Camera)")]
-        [SerializeField] private Camera mainCamera;
+        public static MouseInteractionSystem Instance { get; private set; }
         
-        [Header("Layer Settings")]
-        [Tooltip("Layer mask untuk grid interaction")]
-        [SerializeField] private LayerMask gridLayerMask = -1;
+        [Header("Input Settings")]
+        [SerializeField] private Camera mainCamera;
+        [SerializeField] private LayerMask uiLayerMask;
+        
+        [Header("Visual Feedback")]
+        [SerializeField] private Transform cursorVisual;
         
         [Header("Debug")]
-        [Tooltip("Tampilkan debug ray di Scene view")]
-        [SerializeField] private bool showDebugRay = true;
+        [SerializeField] private bool showDebugGizmos = true;
+
+        [SerializeField] private Vector2Int hoveredGridPos;
+        private Vector2Int highlightDimensions = Vector2Int.one;
+        private Vector2Int highlightOrigin;
+        private Vector2Int lastReportedGridPos = new Vector2Int(-999, -999);
         
-        [Tooltip("Warna debug ray")]
-        [SerializeField] private Color debugRayColor = Color.yellow;
+        // Zero-Allocation Buffer
+        private readonly Collider2D[] overlapResults = new Collider2D[16];
+
+        // Events
+        public delegate void GridCellEvent(Vector2Int gridPos);
+        public static event GridCellEvent OnGridCellClicked;
+        public static event GridCellEvent OnGridCellHovered;
         
-        // Events untuk interaction
-        public System.Action<Vector2Int> OnGridCellClicked;
-        public System.Action<Vector2Int> OnGridCellHovered;
-        
-        private Vector2Int lastHoveredGridPos = new Vector2Int(-1, -1);
-        
-        private void Awake()
+        public void SetHighlightDimensions(Vector2Int dim) => highlightDimensions = dim;
+
+        void Awake()
         {
-            // Auto-assign Main Camera jika belum di-assign
+            if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+            Instance = this;
+
             if (mainCamera == null)
-            {
                 mainCamera = Camera.main;
-                
-                if (mainCamera == null)
-                {
-                    Debug.LogError("[MouseInteractionSystem] Main Camera tidak ditemukan! Pastikan ada Camera dengan tag 'MainCamera'.", this);
-                }
-            }
-            
-            // Validasi GridManager
-            if (GridManager.Instance == null)
-            {
-                Debug.LogError("[MouseInteractionSystem] GridManager.Instance tidak ditemukan! Pastikan GridManager ada di scene.", this);
-            }
         }
-        
-        private void Update()
+
+        void OnDestroy()
         {
-            HandleMouseInput();
+            if (Instance == this) Instance = null;
         }
-        
-        /// <summary>
-        /// Handle mouse input dan raycast ke grid
-        /// </summary>
-        private void HandleMouseInput()
+
+        void Update()
         {
-            if (mainCamera == null || GridManager.Instance == null)
-                return;
+            if (GridManager.Instance == null || mainCamera == null) return;
+
+            Vector3 mouseWorldPos = mainCamera.ScreenToWorldPoint(new Vector3(
+                Input.mousePosition.x, Input.mousePosition.y, -mainCamera.transform.position.z));
             
-            // Convert mouse position ke world position menggunakan raycast
-            Vector3 mouseWorldPos = GetMouseWorldPosition();
+            Vector2Int currentGridPos = GridManager.Instance.WorldToGridPosition(mouseWorldPos);
+            // In infinite DOD grid, all positions are technically valid if a chunk can be loaded,
+            // but we can bounds-check if we want. For now, assume true.
+            bool isValid = true; 
+
+            // Resolve what the cursor is hovering over
+            ResolveHoverTarget(currentGridPos, isValid);
+
+            // Update cursor visual (position + scale)
+            UpdateCursorVisual(currentGridPos, isValid);
             
-            if (mouseWorldPos == Vector3.zero)
-                return;
-            
-            // Convert ke grid position
-            Vector2Int gridPos = GridManager.Instance.GetGridPosition(mouseWorldPos);
-            
-            // Hover detection (untuk highlight nanti)
-            if (gridPos != lastHoveredGridPos)
+            // Hover event
+            if (currentGridPos != lastReportedGridPos)
             {
-                lastHoveredGridPos = gridPos;
-                OnGridCellHovered?.Invoke(gridPos);
+                lastReportedGridPos = currentGridPos;
+                OnGridCellHovered?.Invoke(currentGridPos);
             }
             
-            // Click detection
-            if (Input.GetMouseButtonDown(0)) // Left click
-            {
-                HandleGridClick(gridPos, mouseWorldPos);
-            }
+            // Click event
+            if (Input.GetMouseButtonDown(0) && !IsPointerOverUI())
+                OnGridCellClicked?.Invoke(currentGridPos);
         }
-        
-        /// <summary>
-        /// Raycast dari mouse position ke world position
-        /// </summary>
-        private Vector3 GetMouseWorldPosition()
+
+        private void ResolveHoverTarget(Vector2Int currentGridPos, bool isValid)
         {
-            // Untuk 2D orthographic camera, langsung convert screen to world
-            if (mainCamera.orthographic)
+            if (!isValid)
             {
-                Vector3 mouseScreenPos = Input.mousePosition;
-                mouseScreenPos.z = mainCamera.nearClipPlane;
-                Vector3 worldPos = mainCamera.ScreenToWorldPoint(mouseScreenPos);
-                worldPos.z = 0f; // Lock Z untuk 2D
-                
-                // Debug ray visualization
-                if (showDebugRay)
-                {
-                    Debug.DrawRay(mainCamera.transform.position, worldPos - mainCamera.transform.position, debugRayColor);
-                }
-                
-                return worldPos;
-            }
-            else
-            {
-                // Untuk perspective camera, gunakan raycast
-                Ray ray = mainCamera.ScreenPointToRay(Input.mousePosition);
-                RaycastHit hit;
-                
-                if (Physics.Raycast(ray, out hit, Mathf.Infinity, gridLayerMask))
-                {
-                    if (showDebugRay)
-                    {
-                        Debug.DrawRay(ray.origin, ray.direction * hit.distance, debugRayColor);
-                    }
-                    
-                    return hit.point;
-                }
-                
-                // Fallback: hitung intersection dengan Z=0 plane
-                Plane groundPlane = new Plane(Vector3.forward, Vector3.zero);
-                float distance;
-                if (groundPlane.Raycast(ray, out distance))
-                {
-                    Vector3 hitPoint = ray.GetPoint(distance);
-                    if (showDebugRay)
-                    {
-                        Debug.DrawRay(ray.origin, ray.direction * distance, debugRayColor);
-                    }
-                    return hitPoint;
-                }
-            }
-            
-            return Vector3.zero;
-        }
-        
-        /// <summary>
-        /// Handle click pada grid cell
-        /// </summary>
-        private void HandleGridClick(Vector2Int gridPos, Vector3 worldPos)
-        {
-            // Validasi apakah position playable
-            if (!GridManager.Instance.IsPositionPlayable(gridPos))
-            {
-                Debug.Log($"[MouseInteractionSystem] Clicked on locked area: {gridPos}");
+                hoveredGridPos = currentGridPos;
+                highlightDimensions = Vector2Int.one;
+                highlightOrigin = currentGridPos;
                 return;
             }
-            
-            // Validasi apakah position available
-            if (!GridManager.Instance.IsPositionAvailable(gridPos))
+
+            Vector3 mouseWorldPos = mainCamera.ScreenToWorldPoint(new Vector3(Input.mousePosition.x, Input.mousePosition.y, -mainCamera.transform.position.z));
+            int hitCount = Physics2D.OverlapPointNonAlloc(mouseWorldPos, overlapResults);
+
+            // In DOD, visual prefabs spawned by ChunkRenderer will have MachineIDTag and a Collider2D.
+            // AgriMech (IEntity) also has a Collider2D.
+            for(int i = 0; i < hitCount; i++)
             {
-                Debug.Log($"[MouseInteractionSystem] Clicked on occupied cell: {gridPos}");
-                return;
+                Collider2D hit = overlapResults[i];
+                MachineIDTag tag = hit.GetComponentInParent<MachineIDTag>();
+                if (tag != null)
+                {
+                    SetHighlightFromTag(tag, currentGridPos);
+                    return;
+                }
+
+                AgriMech mech = hit.GetComponentInParent<AgriMech>();
+                if (mech != null)
+                {
+                    hoveredGridPos = currentGridPos;
+                    highlightOrigin = EntityManager.GetGridBelowEntity(mech.transform.position);
+                    highlightDimensions = mech.dimensions;
+                    return;
+                }
             }
+
+            // Default: single cell if hovering over dirt or empty structural cell
+            hoveredGridPos = currentGridPos;
+            highlightDimensions = Vector2Int.one;
+            highlightOrigin = currentGridPos;
+        }
+
+        private void SetHighlightFromTag(MachineIDTag tag, Vector2Int currentGridPos)
+        {
+            // For moving machines (AgriMech), use current position instead of origin
+            AgriMech mech = tag.GetComponent<AgriMech>();
+            Vector2Int basePos = mech != null ? EntityManager.GetGridBelowEntity(mech.transform.position) : tag.originGridPos;
+            Vector2Int dims = tag.dimensions == Vector2Int.zero ? Vector2Int.one : tag.dimensions;
+
+            hoveredGridPos = currentGridPos;
+            highlightOrigin = basePos;
+            highlightDimensions = dims;
+        }
+
+        /// <summary>
+        /// Positions and scales the cursor visual to cover the highlighted area.
+        /// For multi-tile machines, the cursor expands to cover the full footprint.
+        /// </summary>
+        private void UpdateCursorVisual(Vector2Int currentGridPos, bool isValid)
+        {
+            if (cursorVisual == null) return;
+
+            bool hideDefault = PlacementManager.Instance != null && PlacementManager.Instance.IsPlacingModeActive();
+            cursorVisual.gameObject.SetActive(isValid && !IsPointerOverUI() && !hideDefault);
+
+            if (!isValid || hideDefault) return;
+
+            float cSize = GridManager.Instance.CellSize;
+
+            // Position at center of the highlighted footprint
+            Vector3 originWorld = GridManager.Instance.GridToWorldPosition(highlightOrigin);
+            Vector3 offset = new Vector3(
+                (highlightDimensions.x - 1) * 0.5f * cSize,
+                (highlightDimensions.y - 1) * 0.5f * cSize,
+                0f);
             
-            // Trigger event
-            OnGridCellClicked?.Invoke(gridPos);
-            
-            Debug.Log($"[MouseInteractionSystem] Grid cell clicked: {gridPos} (World: {worldPos})");
+            Vector3 targetPos = originWorld + offset;
+            targetPos.z = -1f;
+            cursorVisual.position = targetPos;
+
+            // Scale to cover full footprint
+            cursorVisual.localScale = new Vector3(highlightDimensions.x, highlightDimensions.y, 1f);
+        }
+
+        // ─── Static Utilities ───
+
+        bool IsPointerOverUI()
+        {
+            return UnityEngine.EventSystems.EventSystem.current != null &&
+                   UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject();
         }
         
-        /// <summary>
-        /// Get current hovered grid position (untuk UI feedback)
-        /// </summary>
-        public Vector2Int GetHoveredGridPosition()
+        void OnDrawGizmos()
         {
-            return lastHoveredGridPos;
+            if (!showDebugGizmos || GridManager.Instance == null) return;
+
+            float cellSize = GridManager.Instance.CellSize;
+            Vector3 worldPos = GridManager.Instance.GridToWorldPosition(highlightOrigin);
+            Vector3 offset = new Vector3(
+                (highlightDimensions.x - 1) * 0.5f * cellSize,
+                (highlightDimensions.y - 1) * 0.5f * cellSize, 0f);
+            Vector3 size = new Vector3(
+                highlightDimensions.x * cellSize * 0.95f,
+                highlightDimensions.y * cellSize * 0.95f, 0.1f);
+
+            Gizmos.color = new Color(1f, 1f, 0f, 0.5f);
+            Gizmos.DrawCube(worldPos + offset, size);
         }
+        
+        public Vector2Int GetHoveredGridPosition() => hoveredGridPos;
     }
 }
-
-

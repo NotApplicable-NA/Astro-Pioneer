@@ -1,211 +1,445 @@
 using UnityEngine;
-using System.Collections.Generic;
+using AstroPioneer.Core;
 
 namespace AstroPioneer.Managers
 {
     /// <summary>
-    /// Manager untuk sistem Grid 2D.
-    /// Grid scalable, tapi area playable dibatasi 10x10 (Starter Hull) sesuai GDD v2.1
+    /// GridManager — Thin facade that routes all grid queries to the chunk-based system.
+    /// 
+    /// ARCHITECTURE:
+    /// - Old API signatures (GetOccupantAt, TryOccupyCell, etc.) are preserved
+    ///   for backward compatibility during migration.
+    /// - New API (GetStructureAt, TryPlaceStructure) works with ushort IDs directly.
+    /// - All data lives in Chunk objects managed by ChunkManager.
+    /// - Grid position == World position (1:1 linear, cellSize = 1.0).
     /// </summary>
     public class GridManager : MonoBehaviour
     {
-        [Header("Grid Settings")]
-        [Tooltip("Ukuran grid cell dalam Unity units (1 = 32 pixels dengan PPU 32)")]
-        [SerializeField] private float cellSize = 1f;
-        
-        [Tooltip("Origin point grid (bottom-left corner)")]
-        [SerializeField] private Vector2 gridOrigin = Vector2.zero;
-        
-        [Header("Playable Area (Starter Hull)")]
-        [Tooltip("Area aktif yang bisa digunakan player (10x10 sesuai GDD)")]
-        [SerializeField] private int playableWidth = 10;
-        [SerializeField] private int playableHeight = 10;
-        
-        [Header("Debug")]
-        [Tooltip("Tampilkan gizmo grid di Scene view")]
-        [SerializeField] private bool showGridGizmo = true;
-        
-        [Tooltip("Warna untuk area playable")]
-        [SerializeField] private Color playableAreaColor = new Color(0f, 1f, 0f, 0.2f);
-        
-        [Tooltip("Warna untuk area terkunci")]
-        [SerializeField] private Color lockedAreaColor = new Color(1f, 0f, 0f, 0.2f);
-        
-        // Grid data structure: Dictionary untuk fleksibilitas (bisa expand nanti)
-        private Dictionary<Vector2Int, GridCell> gridCells;
-        
-        // Singleton instance
         public static GridManager Instance { get; private set; }
-        
-        private void Awake()
+
+        [Header("Debug")]
+        [SerializeField] private bool showDebugGizmos = false;
+
+        // ─── Properties (backward compat) ───
+        public float CellSize => 1.0f; // Fixed 1:1 mapping
+
+        void Awake()
         {
-            // Singleton pattern
-            if (Instance != null && Instance != this)
+            if (Instance != null && Instance != this) { Destroy(this); return; }
+            Instance = this;
+        }
+
+        void OnDestroy()
+        {
+            if (Instance == this)
             {
-                Debug.LogError("[GridManager] Multiple instances detected! Destroying duplicate.", this);
-                Destroy(gameObject);
+                Instance = null;
+                ServiceLocator.Unregister<GridManager>();
+            }
+        }
+
+        // ─── Position Conversion (1:1 linear mapping) ───
+
+        /// <summary>Grid coordinate → world center (adds 0.5 offset for cell center).</summary>
+        public Vector3 GridToWorldPosition(Vector2Int gridPos)
+        {
+            return new Vector3(gridPos.x + 0.5f, gridPos.y + 0.5f, 0f);
+        }
+
+        /// <summary>World position → grid coordinate (floor).</summary>
+        public Vector2Int WorldToGridPosition(Vector3 worldPos)
+        {
+            return new Vector2Int(
+                Mathf.FloorToInt(worldPos.x),
+                Mathf.FloorToInt(worldPos.y));
+        }
+
+        // ─── NEW API: Structure-based (ushort IDs) ───
+
+        /// <summary>Get structure ID at a world grid position.</summary>
+        public ushort GetStructureAt(Vector2Int worldGridPos)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return GameConstants.STRUCTURE_EMPTY;
+            if (!cm.TryGetChunkAndLocal(worldGridPos.x, worldGridPos.y, out var chunk, out int lx, out int ly))
+                return GameConstants.STRUCTURE_EMPTY;
+            return chunk.StructureLayer.Get(lx, ly);
+        }
+
+        /// <summary>Get utility (micro-grid) ID at a world grid position.</summary>
+        public ushort GetUtilityAt(Vector2Int worldGridPos)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return GameConstants.STRUCTURE_EMPTY;
+            if (!cm.TryGetChunkAndLocal(worldGridPos.x, worldGridPos.y, out var chunk, out int lx, out int ly))
+                return GameConstants.STRUCTURE_EMPTY;
+            return chunk.UtilityLayer.Get(lx, ly);
+        }
+
+        /// <summary>Get floor ID at a world grid position.</summary>
+        public ushort GetFloorAt(Vector2Int worldGridPos)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return GameConstants.STRUCTURE_EMPTY;
+            if (!cm.TryGetChunkAndLocal(worldGridPos.x, worldGridPos.y, out var chunk, out int lx, out int ly))
+                return GameConstants.STRUCTURE_EMPTY;
+            return chunk.FloorLayer.Get(lx, ly);
+        }
+
+        /// <summary>Place a structure. Returns false if cell is occupied or chunk not loaded.</summary>
+        public bool TryPlaceStructure(Vector2Int worldGridPos, ushort structureID)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return false;
+            if (!cm.TryGetChunkAndLocal(worldGridPos.x, worldGridPos.y, out var chunk, out int lx, out int ly))
+                return false;
+
+            if (chunk.StructureLayer.Get(lx, ly) != GameConstants.STRUCTURE_EMPTY)
+                return false;
+
+            chunk.StructureLayer.Set(lx, ly, structureID);
+            chunk.IsDirty = true;
+
+            // Spawn visual
+            if (ServiceLocator.TryGet<ChunkRenderer>(out var renderer))
+                renderer.SpawnVisualAt(worldGridPos.x, worldGridPos.y, structureID);
+
+            // V22: Refresh pathfinding grid so bots respect new obstacles
+            RefreshPathfindingAt(worldGridPos);
+
+            return true;
+        }
+
+        /// <summary>Remove a structure at position. Returns the ID that was removed.</summary>
+        public ushort RemoveStructure(Vector2Int worldGridPos)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return GameConstants.STRUCTURE_EMPTY;
+            if (!cm.TryGetChunkAndLocal(worldGridPos.x, worldGridPos.y, out var chunk, out int lx, out int ly))
+                return GameConstants.STRUCTURE_EMPTY;
+
+            ushort removed = chunk.StructureLayer.Get(lx, ly);
+            if (removed == GameConstants.STRUCTURE_EMPTY) return GameConstants.STRUCTURE_EMPTY;
+
+            // V20: Multi-tile cleanup. If we remove the origin, clear the footprint.
+            // If it's an OCCUPIED_PART, it shouldn't be removable directly via Grid (must target origin or via physics hit).
+            if (removed == GameConstants.STRUCTURE_OCCUPIED_PART)
+            {
+                Debug.LogWarning($"[GridManager] Attempted to remove OCCUPIED_PART at {worldGridPos}. Interaction should target the origin.");
+                return GameConstants.STRUCTURE_EMPTY; 
+            }
+
+            // Get dimensions from registry
+            var entry = AstroPioneer.Data.StructureRegistry.Instance.Get(removed);
+            int w = 1, h = 1;
+            if (entry != null && entry.dimensions != Vector2.zero)
+            {
+                w = Mathf.RoundToInt(entry.dimensions.x);
+                h = Mathf.RoundToInt(entry.dimensions.y);
+            }
+
+            // Clear the whole footprint
+            for (int x = 0; x < w; x++)
+            {
+                for (int y = 0; y < h; y++)
+                {
+                    Vector2Int pos = worldGridPos + new Vector2Int(x, y);
+                    if (cm.TryGetChunkAndLocal(pos.x, pos.y, out var targetChunk, out int tlx, out int tly))
+                    {
+                        targetChunk.StructureLayer.Set(tlx, tly, GameConstants.STRUCTURE_EMPTY);
+                        targetChunk.MetadataLayer.Set(tlx, tly, 0);
+                        targetChunk.RemoveComplexState(tlx, tly);
+                        targetChunk.IsDirty = true;
+                    }
+                }
+            }
+
+            if (ServiceLocator.TryGet<ChunkRenderer>(out var renderer))
+                renderer.DespawnVisualAt(worldGridPos.x, worldGridPos.y, removed);
+
+            // V22: Refresh pathfinding — removed obstacle is now walkable
+            RefreshPathfindingAt(worldGridPos);
+
+            return removed;
+        }
+
+        /// <summary>Place a utility (micro-grid) structure. Returns false if cell is occupied.</summary>
+        public bool TryPlaceUtility(Vector2Int worldGridPos, ushort utilityID)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return false;
+            if (!cm.TryGetChunkAndLocal(worldGridPos.x, worldGridPos.y, out var chunk, out int lx, out int ly))
+                return false;
+
+            if (chunk.UtilityLayer.Get(lx, ly) != GameConstants.STRUCTURE_EMPTY)
+                return false;
+
+            chunk.UtilityLayer.Set(lx, ly, utilityID);
+            chunk.IsDirty = true;
+            
+            // Visual spawn for utility if needed (assume ChunkRenderer handles it)
+            if (ServiceLocator.TryGet<ChunkRenderer>(out var renderer))
+                renderer.SpawnVisualAt(worldGridPos.x, worldGridPos.y, utilityID);
+
+            // V22: Refresh pathfinding for fences/utilities
+            RefreshPathfindingAt(worldGridPos);
+
+            return true;
+        }
+
+        /// <summary>Remove utility at position.</summary>
+        public ushort RemoveUtility(Vector2Int worldGridPos)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return GameConstants.STRUCTURE_EMPTY;
+            if (!cm.TryGetChunkAndLocal(worldGridPos.x, worldGridPos.y, out var chunk, out int lx, out int ly))
+                return GameConstants.STRUCTURE_EMPTY;
+
+            ushort removed = chunk.UtilityLayer.Get(lx, ly);
+            if (removed == GameConstants.STRUCTURE_EMPTY) return GameConstants.STRUCTURE_EMPTY;
+
+            chunk.UtilityLayer.Set(lx, ly, GameConstants.STRUCTURE_EMPTY);
+            chunk.IsDirty = true;
+
+            if (ServiceLocator.TryGet<ChunkRenderer>(out var renderer))
+                renderer.DespawnVisualAt(worldGridPos.x, worldGridPos.y, removed);
+
+            // V22: Refresh pathfinding — utility removed
+            RefreshPathfindingAt(worldGridPos);
+
+            return removed;
+        }
+
+        // ─── Pathfinding Integration (V23 Chunk-Aware) ───
+        // PathfindingManager now queries IsSolidAt() live during A* search.
+        // No push notifications needed — this method is kept to avoid removing call sites.
+        private void RefreshPathfindingAt(Vector2Int worldGridPos) { /* no-op */ }
+
+        /// <summary>
+        /// Data-driven check: Is the tile at this position solid (non-walkable)?
+        /// Uses StructureData.blocksMovement — set per-item by designers.
+        /// No hardcoded ID ranges or category checks.
+        /// </summary>
+        public bool IsSolidAt(Vector2Int worldGridPos)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return false;
+            if (!cm.TryGetChunkAndLocal(worldGridPos.x, worldGridPos.y, out var chunk, out int lx, out int ly))
+                return false;
+
+            var registry = AstroPioneer.Data.StructureRegistry.Instance;
+            if (registry == null) return false;
+
+            // Check StructureLayer
+            ushort structureID = chunk.StructureLayer.Get(lx, ly);
+            if (structureID != GameConstants.STRUCTURE_EMPTY)
+            {
+                if (structureID == GameConstants.STRUCTURE_OCCUPIED_PART) return true;
+
+                var data = registry.Get(structureID);
+                if (data != null && data.blocksMovement) return true;
+            }
+
+            // Check UtilityLayer
+            ushort utilityID = chunk.UtilityLayer.Get(lx, ly);
+            if (utilityID != GameConstants.STRUCTURE_EMPTY)
+            {
+                var data = registry.Get(utilityID);
+                if (data != null && data.blocksMovement) return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>Check if a structure cell is empty (available for placement).</summary>
+        public bool IsPositionAvailable(Vector2Int worldGridPos)
+        {
+            return GetStructureAt(worldGridPos) == GameConstants.STRUCTURE_EMPTY;
+        }
+
+        // ─── Metadata ───
+
+        /// <summary>Get crop metadata byte (growth stage + flags).</summary>
+        public byte GetMetadataAt(Vector2Int worldGridPos)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return 0;
+            if (!cm.TryGetChunkAndLocal(worldGridPos.x, worldGridPos.y, out var chunk, out int lx, out int ly))
+                return 0;
+            return chunk.MetadataLayer.Get(lx, ly);
+        }
+
+        /// <summary>Set crop metadata byte (in-place, no allocation).</summary>
+        public void SetMetadataAt(Vector2Int worldGridPos, byte metadata)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return;
+            if (!cm.TryGetChunkAndLocal(worldGridPos.x, worldGridPos.y, out var chunk, out int lx, out int ly))
+                return;
+            chunk.MetadataLayer.Set(lx, ly, metadata);
+            chunk.IsDirty = true;
+        }
+
+        /// <summary>Marks the chunk containing this position for saving.</summary>
+        public void MarkChunkDirty(Vector2Int worldGridPos)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return;
+            if (!cm.TryGetChunkAndLocal(worldGridPos.x, worldGridPos.y, out var chunk, out int lx, out int ly))
+                return;
+            chunk.IsDirty = true;
+        }
+
+        // ─── Complex Machine State ───
+
+        /// <summary>
+        /// Get or allocate a byte[] buffer for a complex machine.
+        /// Buffer is pre-allocated; runtime mutations modify it IN-PLACE.
+        /// </summary>
+        public byte[] GetOrAllocateComplexState(Vector2Int worldGridPos)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return null;
+            if (!cm.TryGetChunkAndLocal(worldGridPos.x, worldGridPos.y, out var chunk, out int lx, out int ly))
+                return null;
+            return chunk.AllocateComplexState(lx, ly);
+        }
+
+        /// <summary>Read-only access to existing complex state buffer.</summary>
+        public byte[] GetComplexState(Vector2Int worldGridPos)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return null;
+            if (!cm.TryGetChunkAndLocal(worldGridPos.x, worldGridPos.y, out var chunk, out int lx, out int ly))
+                return null;
+            return chunk.GetComplexState(lx, ly);
+        }
+
+        // ─── Environment Layers ───
+
+        public void AddLightSource(Vector2Int pos)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return;
+            if (!cm.TryGetChunkAndLocal(pos.x, pos.y, out var chunk, out int lx, out int ly)) return;
+            chunk.LitLayer.Set(lx, ly, true);
+            chunk.IsDirty = true;
+        }
+
+        public void RemoveLightSource(Vector2Int pos)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return;
+            if (!cm.TryGetChunkAndLocal(pos.x, pos.y, out var chunk, out int lx, out int ly)) return;
+            chunk.LitLayer.Set(lx, ly, false);
+            chunk.IsDirty = true;
+        }
+
+        public bool IsCellLit(Vector2Int pos)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return false;
+            if (!cm.TryGetChunkAndLocal(pos.x, pos.y, out var chunk, out int lx, out int ly)) return false;
+            return chunk.LitLayer.Get(lx, ly);
+        }
+
+        public void SetShadowCell(Vector2Int pos, bool isShadow)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return;
+            if (!cm.TryGetChunkAndLocal(pos.x, pos.y, out var chunk, out int lx, out int ly)) return;
+            chunk.ShadowLayer.Set(lx, ly, isShadow);
+            chunk.IsDirty = true;
+        }
+
+        public bool IsShadowCell(Vector2Int pos)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return false;
+            if (!cm.TryGetChunkAndLocal(pos.x, pos.y, out var chunk, out int lx, out int ly)) return false;
+            return chunk.ShadowLayer.Get(lx, ly);
+        }
+
+        public void ExploreCell(Vector2Int pos)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return;
+            if (!cm.TryGetChunkAndLocal(pos.x, pos.y, out var chunk, out int lx, out int ly)) return;
+            chunk.ExploredLayer.Set(lx, ly, true);
+            chunk.IsDirty = true;
+        }
+
+        public bool IsCellExplored(Vector2Int pos)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return false;
+            if (!cm.TryGetChunkAndLocal(pos.x, pos.y, out var chunk, out int lx, out int ly)) return false;
+            return chunk.ExploredLayer.Get(lx, ly);
+        }
+
+        // ─── Neighbor Query ───
+
+        // Static direction array — allocated once, never GC'd
+        private static readonly Vector2Int[] NeighborDirs = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
+
+        /// <summary>
+        /// Fills caller-provided list with the 4 cardinal neighbors.
+        /// Caller owns and reuses the buffer — zero GC, zero state corruption.
+        /// </summary>
+        public void GetNeighbors(Vector2Int pos, System.Collections.Generic.List<Vector2Int> resultsBuffer)
+        {
+            resultsBuffer.Clear();
+            for (int i = 0; i < NeighborDirs.Length; i++)
+                resultsBuffer.Add(pos + NeighborDirs[i]);
+        }
+
+        // ─── Debug ───
+
+        void OnDrawGizmosSelected()
+        {
+            if (!showDebugGizmos) return;
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return;
+
+            foreach (var kvp in cm.ActiveChunks)
+            {
+                var chunk = kvp.Value;
+                var origin = new Vector3(chunk.Coord.WorldOriginX, chunk.Coord.WorldOriginY, 0);
+                float size = GameConstants.CHUNK_SIZE;
+
+                // Chunk borders
+                Gizmos.color = Color.yellow;
+                Gizmos.DrawWireCube(
+                    origin + new Vector3(size * 0.5f, size * 0.5f, 0),
+                    new Vector3(size, size, 0));
+            }
+        }
+        // ─── Simulation-Safe API (V25 AAA — Works across unloaded chunks) ───
+
+        /// <summary>
+        /// Get structure ID at a world grid position, even if the chunk is unloaded.
+        /// Falls back to loading chunk from disk via ChunkManager's simulation cache.
+        /// Used exclusively by BotSimulationManager for off-screen operations.
+        /// </summary>
+        public ushort GetStructureAtForSimulation(Vector2Int worldGridPos)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return GameConstants.STRUCTURE_EMPTY;
+            if (!cm.TryGetChunkForSimulation(worldGridPos.x, worldGridPos.y, out var chunk, out int lx, out int ly))
+                return GameConstants.STRUCTURE_EMPTY;
+            return chunk.StructureLayer.Get(lx, ly);
+        }
+
+        /// <summary>
+        /// Get or allocate ComplexState for a position, even if the chunk is unloaded.
+        /// Used exclusively by BotSimulationManager for off-screen storage writes.
+        /// </summary>
+        public byte[] GetOrAllocateComplexStateForSimulation(Vector2Int worldGridPos)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return null;
+            if (!cm.TryGetChunkForSimulation(worldGridPos.x, worldGridPos.y, out var chunk, out int lx, out int ly))
+                return null;
+            return chunk.AllocateComplexState(lx, ly);
+        }
+
+        /// <summary>
+        /// Mark a chunk dirty from simulation context (may be cached, not active).
+        /// Ensures the modified data is saved to disk on cache eviction.
+        /// </summary>
+        public void MarkChunkDirtyForSimulation(Vector2Int worldGridPos)
+        {
+            if (!ServiceLocator.TryGet<ChunkManager>(out var cm)) return;
+            
+            var coord = ChunkCoord.FromGridPos(worldGridPos.x, worldGridPos.y);
+            
+            // If chunk is active, use normal dirty flag
+            var activeChunk = cm.GetChunk(coord);
+            if (activeChunk != null)
+            {
+                activeChunk.IsDirty = true;
                 return;
             }
             
-            Instance = this;
-            InitializeGrid();
+            // Otherwise mark the simulation cache entry dirty
+            cm.MarkSimulationCacheDirty(coord);
         }
-        
-        /// <summary>
-        /// Inisialisasi grid system
-        /// </summary>
-        private void InitializeGrid()
-        {
-            gridCells = new Dictionary<Vector2Int, GridCell>();
-            
-            // Pre-allocate playable area
-            for (int x = 0; x < playableWidth; x++)
-            {
-                for (int y = 0; y < playableHeight; y++)
-                {
-                    Vector2Int gridPos = new Vector2Int(x, y);
-                    gridCells[gridPos] = new GridCell
-                    {
-                        gridPosition = gridPos,
-                        isPlayable = true,
-                        isOccupied = false
-                    };
-                }
-            }
-            
-            Debug.Log($"[GridManager] Grid initialized. Playable area: {playableWidth}x{playableHeight}");
-        }
-        
-        /// <summary>
-        /// Convert world position ke grid position
-        /// </summary>
-        public Vector2Int GetGridPosition(Vector3 worldPos)
-        {
-            Vector2 localPos = worldPos - (Vector3)gridOrigin;
-            int x = Mathf.FloorToInt(localPos.x / cellSize);
-            int y = Mathf.FloorToInt(localPos.y / cellSize);
-            
-            return new Vector2Int(x, y);
-        }
-        
-        /// <summary>
-        /// Convert grid position ke world position (center of cell)
-        /// </summary>
-        public Vector3 GetWorldPosition(Vector2Int gridPos)
-        {
-            float worldX = gridOrigin.x + (gridPos.x * cellSize) + (cellSize * 0.5f);
-            float worldY = gridOrigin.y + (gridPos.y * cellSize) + (cellSize * 0.5f);
-            
-            return new Vector3(worldX, worldY, 0f);
-        }
-        
-        /// <summary>
-        /// Cek apakah grid position berada di area playable
-        /// </summary>
-        public bool IsPositionPlayable(Vector2Int gridPos)
-        {
-            return gridPos.x >= 0 && gridPos.x < playableWidth &&
-                   gridPos.y >= 0 && gridPos.y < playableHeight;
-        }
-        
-        /// <summary>
-        /// Cek apakah grid position tersedia (playable dan tidak occupied)
-        /// </summary>
-        public bool IsPositionAvailable(Vector2Int gridPos)
-        {
-            if (!IsPositionPlayable(gridPos))
-                return false;
-            
-            if (gridCells.TryGetValue(gridPos, out GridCell cell))
-            {
-                return !cell.isOccupied;
-            }
-            
-            return false;
-        }
-        
-        /// <summary>
-        /// Set cell sebagai occupied/unoccupied
-        /// </summary>
-        public void SetCellOccupied(Vector2Int gridPos, bool occupied)
-        {
-            if (gridCells.TryGetValue(gridPos, out GridCell cell))
-            {
-                cell.isOccupied = occupied;
-            }
-            else if (IsPositionPlayable(gridPos))
-            {
-                // Create new cell jika belum ada
-                gridCells[gridPos] = new GridCell
-                {
-                    gridPosition = gridPos,
-                    isPlayable = true,
-                    isOccupied = occupied
-                };
-            }
-            else
-            {
-                Debug.LogWarning($"[GridManager] Attempted to set cell outside playable area: {gridPos}");
-            }
-        }
-        
-        /// <summary>
-        /// Get cell data
-        /// </summary>
-        public GridCell GetCell(Vector2Int gridPos)
-        {
-            if (gridCells.TryGetValue(gridPos, out GridCell cell))
-            {
-                return cell;
-            }
-            
-            return null;
-        }
-        
-        // Debug visualization
-        private void OnDrawGizmos()
-        {
-            if (!showGridGizmo) return;
-            
-            // Draw playable area
-            Gizmos.color = playableAreaColor;
-            Vector3 playableSize = new Vector3(playableWidth * cellSize, playableHeight * cellSize, 0.1f);
-            Vector3 playableCenter = (Vector3)gridOrigin + new Vector3(
-                playableWidth * cellSize * 0.5f,
-                playableHeight * cellSize * 0.5f,
-                0f
-            );
-            Gizmos.DrawCube(playableCenter, playableSize);
-            
-            // Draw grid lines untuk playable area
-            Gizmos.color = Color.green;
-            for (int x = 0; x <= playableWidth; x++)
-            {
-                Vector3 start = (Vector3)gridOrigin + new Vector3(x * cellSize, 0f, 0f);
-                Vector3 end = (Vector3)gridOrigin + new Vector3(x * cellSize, playableHeight * cellSize, 0f);
-                Gizmos.DrawLine(start, end);
-            }
-            
-            for (int y = 0; y <= playableHeight; y++)
-            {
-                Vector3 start = (Vector3)gridOrigin + new Vector3(0f, y * cellSize, 0f);
-                Vector3 end = (Vector3)gridOrigin + new Vector3(playableWidth * cellSize, y * cellSize, 0f);
-                Gizmos.DrawLine(start, end);
-            }
-        }
-    }
-    
-    /// <summary>
-    /// Data structure untuk setiap cell di grid
-    /// </summary>
-    [System.Serializable]
-    public class GridCell
-    {
-        public Vector2Int gridPosition;
-        public bool isPlayable;
-        public bool isOccupied;
-        // Bisa ditambah data lain nanti (crop reference, tile type, dll)
     }
 }
-
-
