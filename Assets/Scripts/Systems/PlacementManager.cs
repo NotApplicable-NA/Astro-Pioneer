@@ -42,31 +42,49 @@ namespace AstroPioneer.Systems
                 ghostSpriteRenderer = null;
             }
 
-            // Create new ghost if placing a crafted item
-            if (item != null && item.type == ItemType.Crafted)
+            // Create ghost if item has valid placement data (Capability-Checking, not Type-Checking)
+            if (item != null && item.placedStructure != null && item.placedStructure.visualPrefab != null)
             {
-                if (item.placedStructure != null && item.placedStructure.visualPrefab != null)
+                ghostVisual = Instantiate(item.placedStructure.visualPrefab);
+                ghostVisual.name = "Ghost_" + item.placedStructure.visualPrefab.name;
+                
+                // Auto-disable colliders and scripts on ghost
+                var colliders = ghostVisual.GetComponentsInChildren<Collider2D>();
+                foreach (var c in colliders) c.enabled = false;
+                
+                var scripts = ghostVisual.GetComponentsInChildren<MonoBehaviour>();
+                foreach (var s in scripts) 
                 {
-                    ghostVisual = Instantiate(item.placedStructure.visualPrefab);
-                    ghostVisual.name = "Ghost_" + item.placedStructure.visualPrefab.name;
-                    
-                    // Auto-disable colliders and scripts on ghost
-                    var colliders = ghostVisual.GetComponentsInChildren<Collider2D>();
-                    foreach (var c in colliders) c.enabled = false;
-                    
-                    var scripts = ghostVisual.GetComponentsInChildren<MonoBehaviour>();
-                    foreach (var s in scripts) 
+                    if (s != null) s.enabled = false;
+                }
+                ghostSpriteRenderer = ghostVisual.GetComponentInChildren<SpriteRenderer>();
+                
+                if (ghostSpriteRenderer != null)
+                {
+                    // V25.2: Force hologram to render in front of absolutely everything
+                    ghostSpriteRenderer.sortingOrder = AstroPioneer.Core.GameConstants.SORTING_ORDER_HOLOGRAM;
+
+                    // For crops, show the final growth stage as a preview
+                    if (item.placedStructure.isCrop &&
+                        item.placedStructure.sprites != null && 
+                        item.placedStructure.sprites.Length > 0)
                     {
-                        if (s != null) s.enabled = false;
+                        ghostSpriteRenderer.sprite = item.placedStructure.sprites[item.placedStructure.sprites.Length - 1];
                     }
-                    ghostSpriteRenderer = ghostVisual.GetComponentInChildren<SpriteRenderer>();
+                    // V25.3: For machines/structures, show the default sprite if the prefab is an empty template
+                    else if (item.placedStructure.sprites != null && item.placedStructure.sprites.Length > 0)
+                    {
+                        ghostSpriteRenderer.sprite = item.placedStructure.sprites[0];
+                    }
                 }
             }
         }
 
         public bool IsPlacingModeActive()
         {
-            return currentPlacementItem != null && currentPlacementItem.type == ItemType.Crafted;
+            return currentPlacementItem != null && 
+                   currentPlacementItem.placedStructure != null && 
+                   currentPlacementItem.placedStructure.visualPrefab != null;
         }
 
         /// <summary>
@@ -102,13 +120,9 @@ namespace AstroPioneer.Systems
                         // Primary: UtilityLayer must be empty
                         if (GridManager.Instance.GetUtilityAt(pos) != AstroPioneer.Core.GameConstants.STRUCTURE_EMPTY) return false;
                         
-                        // Cross-layer: StructureLayer must not have a blocking structure
-                        ushort structID = GridManager.Instance.GetStructureAt(pos);
-                        if (structID != AstroPioneer.Core.GameConstants.STRUCTURE_EMPTY && registry != null)
-                        {
-                            var data = registry.Get(structID);
-                            if (data != null && data.blocksMacroPlacement) return false;
-                        }
+                        // Cross-layer: StructureLayer check removed for V25.1.
+                        // Micro items (Cables/Pipes) can be placed under ANY macro structure, 
+                        // regardless of whether the macro structure blocks movement/placement.
                     }
                     else
                     {
@@ -241,6 +255,13 @@ namespace AstroPioneer.Systems
                 }
             }
 
+            // V25: Reevaluate enclosures when placing a structure that blocks movement (e.g. fence)
+            if (!isMicro && currentPlacementItem.placedStructure.blocksMovement)
+            {
+                if (AstroPioneer.Systems.Husbandry.EnclosureSystem.Instance != null)
+                    AstroPioneer.Systems.Husbandry.EnclosureSystem.Instance.ReevaluateEnclosuresAround(gridPos);
+            }
+
             return true;
         }
 
@@ -259,51 +280,19 @@ namespace AstroPioneer.Systems
                 
                 Vector2Int gridPos = GridManager.Instance.WorldToGridPosition(mouseWorldPos - mouseOffset);
                 
-                Vector3 corner = GridManager.Instance.GridToWorldPosition(gridPos);
-                Vector3 centerOffsetExtents = new Vector3(dimensions.x * 0.5f * cSize, dimensions.y * 0.5f * cSize, 0);
-                ghostVisual.transform.position = corner + centerOffsetExtents;
+                // V25 Fix: (dimensions - 1) * 0.5f ensures correct centering based on center-of-first-tile origin.
+                Vector3 centerOfFirstTile = GridManager.Instance.GridToWorldPosition(gridPos);
+                Vector3 dimensionsOffset = new Vector3((dimensions.x - 1) * 0.5f * cSize, (dimensions.y - 1) * 0.5f * cSize, 0);
+                
+                // Apply optional data-driven visual offset
+                Vector3 dataOffset = currentPlacementItem.placedStructure != null ? currentPlacementItem.placedStructure.visualOffset : Vector3.zero;
+                
+                ghostVisual.transform.position = centerOfFirstTile + dimensionsOffset + dataOffset;
 
                 // Validation checks
                 bool isInsideBounds = true; // DOD chunk map is infinite
-                bool isSpaceFree = true;
-                
-                int w = Mathf.RoundToInt(dimensions.x == 0 ? 1 : dimensions.x);
-                int h = Mathf.RoundToInt(dimensions.y == 0 ? 1 : dimensions.y);
-                bool isMicro = currentPlacementItem != null && currentPlacementItem.isMicroGridItem;
-                var registry = AstroPioneer.Data.StructureRegistry.Instance;
-                
-                for (int x = 0; x < w; x++)
-                {
-                    for (int y = 0; y < h; y++)
-                    {
-                        Vector2Int pos = gridPos + new Vector2Int(x, y);
-                        
-                        if (isMicro)
-                        {
-                            if (GridManager.Instance.GetUtilityAt(pos) != AstroPioneer.Core.GameConstants.STRUCTURE_EMPTY) isSpaceFree = false;
-                            
-                            // Cross-layer: check StructureLayer for blocking structures
-                            ushort sID = GridManager.Instance.GetStructureAt(pos);
-                            if (sID != AstroPioneer.Core.GameConstants.STRUCTURE_EMPTY && registry != null)
-                            {
-                                var data = registry.Get(sID);
-                                if (data != null && data.blocksMacroPlacement) isSpaceFree = false;
-                            }
-                        }
-                        else
-                        {
-                            if (GridManager.Instance.GetStructureAt(pos) != AstroPioneer.Core.GameConstants.STRUCTURE_EMPTY) isSpaceFree = false;
-                            
-                            // Cross-layer: check UtilityLayer for blocking structures
-                            ushort uID = GridManager.Instance.GetUtilityAt(pos);
-                            if (uID != AstroPioneer.Core.GameConstants.STRUCTURE_EMPTY && registry != null)
-                            {
-                                var data = registry.Get(uID);
-                                if (data != null && data.blocksMacroPlacement) isSpaceFree = false;
-                            }
-                        }
-                    }
-                }
+                // Validate placement using the DRY method instead of duplicating loops
+                bool isSpaceFree = IsPlacementValid(gridPos, dimensions);
 
                 // Hide completely if out of bounds. Show RED if colliding inside bounds.
                 ghostVisual.SetActive(isInsideBounds);

@@ -22,7 +22,14 @@ namespace AstroPioneer.Data
         [Tooltip("If true, this is a free-moving entity (Bot, Vehicle) — NOT a grid structure. Spawned via EntityManager, NOT written to chunk data.")]
         public bool isEntity = false;
         
-        [Header("Type")]
+        [Header("Capabilities (V25.2 DOD)")]
+        [Tooltip("If true, this item can be used as a tool (Hoe, Watering Can).")]
+        public bool isTool = false;
+        
+        [Tooltip("If true, this item can be consumed by the player.")]
+        public bool isConsumable = false;
+
+        [Header("Type (Legacy/UI Only)")]
         public ItemType type;
 
         [Header("Tool Behaviour (V22 Strategy Pattern)")]

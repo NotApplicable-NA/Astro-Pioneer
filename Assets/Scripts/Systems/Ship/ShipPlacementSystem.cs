@@ -14,7 +14,6 @@ namespace AstroPioneer.Systems.Ship
         public static ShipPlacementSystem Instance { get; private set; }
 
         [Header("Settings")]
-        [SerializeField] private LayerMask gridLayerMask;
         [SerializeField] private Color validColor = new Color(0f, 1f, 0f, 0.5f);
         [SerializeField] private Color invalidColor = new Color(1f, 0f, 0f, 0.5f);
 

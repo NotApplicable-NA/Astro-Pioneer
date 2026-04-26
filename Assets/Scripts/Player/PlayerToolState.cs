@@ -18,9 +18,6 @@ namespace AstroPioneer.Player
     {
         public static PlayerToolState Instance { get; private set; }
 
-        // Pre-allocated buffer for Physics2D NonAlloc queries (zero GC)
-        private static readonly Collider2D[] overlapBuffer = new Collider2D[16];
-
         public static event Action<int> OnHotbarSelectionChanged;
         public static event Action<ToolType> OnToolChanged;
 
@@ -147,38 +144,69 @@ namespace AstroPioneer.Player
                 return;
             }
 
-            // 3. Physics-based Check for Interactables (replaces GetOccupantAt)
-            Vector3 worldPos = GridManager.Instance.GridToWorldPosition(gridPos);
-            int hitCount = Physics2D.OverlapPointNonAlloc(worldPos, overlapBuffer);
-            
-            for (int i = 0; i < hitCount; i++)
+            // 3. Data-Driven Check for Interactables (No Physics2D)
+            if (AstroPioneer.Core.ServiceLocator.TryGet<AstroPioneer.Core.ChunkRenderer>(out var chunkRenderer))
             {
-                var hit = overlapBuffer[i];
-                IGridInteractable interactable = hit.GetComponentInParent<IGridInteractable>();
-                if (interactable != null)
+                GameObject visual = chunkRenderer.GetVisualAt(gridPos);
+                if (visual != null)
                 {
-                    interactable.Interact(selectedItem);
-                    return;
+                    IGridInteractable interactable = visual.GetComponentInChildren<IGridInteractable>();
+                    if (interactable != null)
+                    {
+                        interactable.Interact(selectedItem);
+                        return;
+                    }
                 }
             }
 
             if (selectedItem == null) return;
 
-            // 4. Item-type actions (Seed, Crafted)
-            switch (selectedItem.type)
+            // 4. V25.2 DOD Capability-Based Execution
+            // We check for "What can this item do?" instead of "What category is this item?"
+
+            // 4a. Capability: Placeable (Structures & Crops)
+            if (selectedItem.placedStructure != null)
             {
-                case ItemType.Seed:
-                    CropStructureData cropData = (selectedItem.placedStructure as CropStructureData) ?? GetFallbackCropData(selectedItem);
-                    if (cropData != null) PlantCrop(gridPos, cropData);
-                    break;
-
-                case ItemType.Crafted:
-                    if (PlacementManager.Instance != null && PlacementManager.Instance.IsPlacingModeActive())
-                        if (PlacementManager.Instance.TryPlace(gridPos))
-                            InventoryManager.Instance?.RemoveItemAt(selectedHotbarIndex, 1);
-                    break;
-
-                // ItemType.Tool is already handled above via ToolBehaviour
+                // If it's a crop, use the specialized planting logic (checks for hoed soil, etc.)
+                if (selectedItem.placedStructure.isCrop)
+                {
+                    // V25.2: Use the structure data directly from the item
+                    if (selectedItem.placedStructure is CropStructureData cropData)
+                    {
+                        PlantCrop(gridPos, cropData);
+                    }
+                    else
+                    {
+                        // Fallback for when data is not explicitly castable but marked as isCrop
+                        PlantCrop(gridPos, GetFallbackCropData(selectedItem));
+                    }
+                }
+                // Otherwise, it's a macro/micro structure (Generator, Pipe, Fence, etc.)
+                else if (PlacementManager.Instance != null && PlacementManager.Instance.IsPlacingModeActive())
+                {
+                    if (PlacementManager.Instance.TryPlace(gridPos))
+                    {
+                        InventoryManager.Instance?.RemoveItemAt(selectedHotbarIndex, 1);
+                    }
+                }
+            }
+            // 4b. Capability: Tool (Hoe, Watering Can)
+            else if (selectedItem.isTool || selectedItem.toolAction != null)
+            {
+                if (selectedItem.toolAction != null)
+                {
+                    if (selectedItem.toolAction.Execute(gridPos, selectedItem, selectedHotbarIndex))
+                    {
+                        // Some tools might consume themselves, handled in Execute.
+                    }
+                }
+            }
+            // 4c. Capability: Consumable (Food, Medkit)
+            else if (selectedItem.isConsumable)
+            {
+                Debug.Log($"[PlayerToolState] Consuming {selectedItem.displayName}...");
+                // Add actual consumption logic here (Hunger/Health restore)
+                InventoryManager.Instance?.RemoveItemAt(selectedHotbarIndex, 1);
             }
         }
 
@@ -212,17 +240,22 @@ namespace AstroPioneer.Player
         private ToolType MapItemToToolType(InventoryItem item)
         {
             if (item == null) return ToolType.None;
-            switch (item.type)
+
+            // Priority 1: Seeds (Visual feedback for planting)
+            if (item.placedStructure != null && item.placedStructure.isCrop)
             {
-                case ItemType.Seed:
-                    if (item.placedStructure == spacePotatoData) return ToolType.Seed_SpacePotato;
-                    if (item.placedStructure == neonCarrotData) return ToolType.Seed_NeonCarrot;
-                    return ToolType.Seed_SpacePotato;
-                case ItemType.Tool:
-                    return ToolType.WateringCan;
-                default:
-                    return ToolType.None;
+                if (item.placedStructure == spacePotatoData) return ToolType.Seed_SpacePotato;
+                if (item.placedStructure == neonCarrotData) return ToolType.Seed_NeonCarrot;
+                return ToolType.Seed_SpacePotato; // Default
             }
+
+            // Priority 2: Generic Tools
+            if (item.isTool || item.toolAction != null)
+            {
+                return ToolType.WateringCan; // Visual feedback for generic tool usage
+            }
+
+            return ToolType.None;
         }
 
         private CropStructureData GetFallbackCropData(InventoryItem item)

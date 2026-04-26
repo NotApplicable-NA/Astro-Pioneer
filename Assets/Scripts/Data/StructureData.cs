@@ -3,16 +3,15 @@ using UnityEngine;
 namespace AstroPioneer.Data
 {
     /// <summary>
-    /// Categories for structures placed on the grid.
-    /// Determines which GridLayer inside a Chunk they belong to.
+    /// V25.1: Pure engine-level grid layer assignment.
+    /// Determines ONLY which array inside a Chunk stores this structure's ID.
+    /// No semantic meaning — UI/Game Design uses ItemCategory instead.
     /// </summary>
-    public enum StructureCategory
+    public enum TargetGridLayer
     {
-        Floor,          // FloorLayer: iron plates, dirt tiles
-        Utility,        // UtilityLayer: cables, pipes, fences
-        Crop,           // StructureLayer: plantable crops
-        Machine,        // StructureLayer: sprinklers, harvesters, pumps
-        Decorative      // StructureLayer: trees, rocks, decor
+        FloorLayer,         // Chunk.FloorLayer: iron plates, dirt tiles
+        UtilityLayer,       // Chunk.UtilityLayer: cables, pipes (underground infrastructure)
+        StructureLayer      // Chunk.StructureLayer: machines, crops, fences, decoratives (above ground)
     }
 
     /// <summary>
@@ -25,8 +24,10 @@ namespace AstroPioneer.Data
         [Header("Identity")]
         public string displayName;
 
-        [Header("Classification")]
-        public StructureCategory category;
+        [Header("Grid Layer (Engine Only)")]
+        [Tooltip("V25.1: Determines which data array in the Chunk stores this structure. " +
+                 "This is purely an engine concern — use ItemCategory for UI/semantics.")]
+        public TargetGridLayer targetLayer = TargetGridLayer.StructureLayer;
 
         [Header("Visuals")]
         [Tooltip("Sprites for each state/growth stage. Index 0 = default.")]
@@ -41,6 +42,9 @@ namespace AstroPioneer.Data
         [Tooltip("Grid dimensions (e.g. 2x2 for AgriMech, 1x1 for crops).")]
         public Vector2Int dimensions = Vector2Int.one;
 
+        [Tooltip("Optional fine-tuning for the visual puppet position. Applied after dimensions centering.")]
+        public Vector3 visualOffset = Vector3.zero;
+
         [Tooltip("If true, this structure blocks Macro placement (other machines/crops).")]
         public bool blocksMacroPlacement = true;
 
@@ -51,6 +55,13 @@ namespace AstroPioneer.Data
         [Tooltip("If true, this structure has complex runtime state " +
                  "(inventory, power level, orientation) stored in Chunk.ComplexStates.")]
         public bool hasComplexState = false;
+
+        [Header("Capability Flags")]
+        [Tooltip("V25.1: If true, this structure is a crop with growth stages driven by MetadataLayer.")]
+        public bool isCrop = false;
+
+        [Tooltip("V25.1: If true, this structure is an interactable machine with runtime behavior.")]
+        public bool isMachine = false;
 
         [Header("Economy")]
         public int sellPrice = 0;

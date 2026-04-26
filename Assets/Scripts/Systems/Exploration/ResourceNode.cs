@@ -9,7 +9,7 @@ namespace AstroPioneer.Systems.Exploration
     /// Player hits it to collect resources.
     /// </summary>
     [RequireComponent(typeof(SpriteRenderer))]
-    [RequireComponent(typeof(Collider2D))]
+    // Physics attributes removed for DOD architecture
     public class ResourceNode : MonoBehaviour, AstroPioneer.Interfaces.IGridInteractable
     {
         [Header("State")]

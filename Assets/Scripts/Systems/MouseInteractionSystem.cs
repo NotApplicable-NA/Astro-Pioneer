@@ -2,6 +2,7 @@ using UnityEngine;
 using AstroPioneer.Managers;
 using AstroPioneer.Machines;
 using AstroPioneer.Core;
+using AstroPioneer.Data;
 
 namespace AstroPioneer.Systems
 {
@@ -15,7 +16,6 @@ namespace AstroPioneer.Systems
         
         [Header("Input Settings")]
         [SerializeField] private Camera mainCamera;
-        [SerializeField] private LayerMask uiLayerMask;
         
         [Header("Visual Feedback")]
         [SerializeField] private Transform cursorVisual;
@@ -27,9 +27,6 @@ namespace AstroPioneer.Systems
         private Vector2Int highlightDimensions = Vector2Int.one;
         private Vector2Int highlightOrigin;
         private Vector2Int lastReportedGridPos = new Vector2Int(-999, -999);
-        
-        // Zero-Allocation Buffer
-        private readonly Collider2D[] overlapResults = new Collider2D[16];
 
         // Events
         public delegate void GridCellEvent(Vector2Int gridPos);
@@ -92,47 +89,44 @@ namespace AstroPioneer.Systems
                 return;
             }
 
-            Vector3 mouseWorldPos = mainCamera.ScreenToWorldPoint(new Vector3(Input.mousePosition.x, Input.mousePosition.y, -mainCamera.transform.position.z));
-            int hitCount = Physics2D.OverlapPointNonAlloc(mouseWorldPos, overlapResults);
-
-            // In DOD, visual prefabs spawned by ChunkRenderer will have MachineIDTag and a Collider2D.
-            // AgriMech (IEntity) also has a Collider2D.
-            for(int i = 0; i < hitCount; i++)
-            {
-                Collider2D hit = overlapResults[i];
-                MachineIDTag tag = hit.GetComponentInParent<MachineIDTag>();
-                if (tag != null)
-                {
-                    SetHighlightFromTag(tag, currentGridPos);
-                    return;
-                }
-
-                AgriMech mech = hit.GetComponentInParent<AgriMech>();
-                if (mech != null)
-                {
-                    hoveredGridPos = currentGridPos;
-                    highlightOrigin = EntityManager.GetGridBelowEntity(mech.transform.position);
-                    highlightDimensions = mech.dimensions;
-                    return;
-                }
-            }
-
-            // Default: single cell if hovering over dirt or empty structural cell
+            // V25.1 Data-Driven Hover Detection (No Physics2D)
             hoveredGridPos = currentGridPos;
             highlightDimensions = Vector2Int.one;
             highlightOrigin = currentGridPos;
-        }
 
-        private void SetHighlightFromTag(MachineIDTag tag, Vector2Int currentGridPos)
-        {
-            // For moving machines (AgriMech), use current position instead of origin
-            AgriMech mech = tag.GetComponent<AgriMech>();
-            Vector2Int basePos = mech != null ? EntityManager.GetGridBelowEntity(mech.transform.position) : tag.originGridPos;
-            Vector2Int dims = tag.dimensions == Vector2Int.zero ? Vector2Int.one : tag.dimensions;
+            if (GridManager.Instance != null && StructureRegistry.Instance != null)
+            {
+                ushort id = GridManager.Instance.GetStructureAt(currentGridPos);
+                if (id != GameConstants.STRUCTURE_EMPTY)
+                {
+                    StructureData data = StructureRegistry.Instance.Get(id);
+                    if (data != null && (data.isMachine || data.isCrop))
+                    {
+                        highlightDimensions = data.dimensions;
+                        // Note: For multi-tile structures, finding the true origin purely from data 
+                        // without reading ComplexState means the highlight will start at the hovered cell.
+                        // To fix this fully, a "RootPos" should be stored in ComplexState.
+                        return;
+                    }
+                }
+            }
 
-            hoveredGridPos = currentGridPos;
-            highlightOrigin = basePos;
-            highlightDimensions = dims;
+            // Check for simulated bots (Entities)
+            if (AstroPioneer.Machines.Automation.BotSimulationManager.Instance != null)
+            {
+                var bots = AstroPioneer.Machines.Automation.BotSimulationManager.Instance.GetAllBots();
+                for (int i = 0; i < bots.Count; i++)
+                {
+                    var bot = bots[i];
+                    Vector2Int botPos = new Vector2Int(Mathf.FloorToInt(bot.currentPos.x), Mathf.FloorToInt(bot.currentPos.y));
+                    if (botPos == currentGridPos)
+                    {
+                        highlightDimensions = new Vector2Int(2, 2); // Default AgriMech size
+                        highlightOrigin = botPos;
+                        return;
+                    }
+                }
+            }
         }
 
         /// <summary>

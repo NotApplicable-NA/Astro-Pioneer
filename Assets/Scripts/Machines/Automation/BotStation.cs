@@ -132,7 +132,7 @@ namespace AstroPioneer.Machines.Automation
             if (structID == GameConstants.STRUCTURE_EMPTY) return;
 
             StructureData data = StructureRegistry.Instance.Get(structID);
-            if (data == null || data.category != StructureCategory.Machine) return;
+            if (data == null || !data.isMachine) return;
             if (data.visualPrefab == null) return;
 
             // Check the PREFAB asset (not a scene instance — always valid)

@@ -70,5 +70,11 @@ namespace AstroPioneer.Core
         public const int WORLD_BOUNDARY_LIMIT = 500;   // Boundary for world-coord-aware systems
         public const int MAX_ENCLOSURE_SIZE = 100;     // Max tiles for flood-fill enclosure detection
         public const int MAX_SAVES_PER_FRAME = 2;      // Max chunk saves flushed per frame (V19 Rate Limiter)
+
+        // ─── Rendering & Z-Ordering ───
+        public const int SORTING_ORDER_FLOOR = 0;
+        public const int SORTING_ORDER_STRUCTURE = 100;
+        public const int SORTING_ORDER_UTILITY = 150;
+        public const int SORTING_ORDER_HOLOGRAM = 1000;
     }
 }

@@ -106,7 +106,7 @@ namespace AstroPioneer.Machines.Automation
                     if (structID == AstroPioneer.Core.GameConstants.STRUCTURE_EMPTY) continue;
 
                     StructureData data = StructureRegistry.Instance.Get(structID);
-                    if (data == null || data.category != StructureCategory.Machine || data.visualPrefab == null) continue;
+                    if (data == null || !data.isMachine || data.visualPrefab == null) continue;
 
                     if (!foundSource && data.visualPrefab.GetComponent<MachineWaterPump>() != null)
                     {
